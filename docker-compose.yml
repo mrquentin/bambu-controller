@@ -1,0 +1,14 @@
+services:
+  bambu-controller:
+    build: .
+    container_name: bambu-controller
+    restart: unless-stopped
+    # Host networking lets SSDP discovery (UDP 2021/1990) see the printers.
+    # Without it, add printers manually by IP and publish port 8080 instead.
+    network_mode: host
+    environment:
+      PORT: 8080
+      # COOKIE_SECURE: "true"   # when served over HTTPS (reverse proxy)
+      # TRUST_PROXY: "true"     # when behind a reverse proxy
+    volumes:
+      - ./data:/data

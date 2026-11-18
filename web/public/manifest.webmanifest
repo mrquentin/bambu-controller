@@ -1,0 +1,14 @@
+{
+  "name": "Bambu Controller",
+  "short_name": "Bambu",
+  "description": "Monitor and control Bambu Lab printers on your LAN",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1215",
+  "theme_color": "#0f1215",
+  "icons": [
+    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" }
+  ]
+}

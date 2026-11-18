@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#232a33"/>
+      <stop offset="1" stop-color="#11151a"/>
+    </linearGradient>
+    <linearGradient id="print" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3ddc8f"/>
+      <stop offset="1" stop-color="#139a5a"/>
+    </linearGradient>
+  </defs>
+  <!-- tile -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- enclosure -->
+  <rect x="11" y="10" width="42" height="44" rx="7" fill="none" stroke="#e6e9ed" stroke-width="3"/>
+  <!-- gantry -->
+  <path d="M12.5 21.5h39" stroke="#e6e9ed" stroke-width="2.5" stroke-linecap="round" opacity="0.55"/>
+  <!-- toolhead + nozzle -->
+  <rect x="25.5" y="16" width="13" height="10" rx="2.5" fill="#19b26b"/>
+  <path d="M29.5 26h5l-2.5 3.5z" fill="#19b26b"/>
+  <!-- printed part, layer by layer -->
+  <rect x="27" y="32" width="10" height="3.5" rx="1.2" fill="url(#print)" opacity="0.75"/>
+  <rect x="24.5" y="36.5" width="15" height="3.5" rx="1.2" fill="url(#print)" opacity="0.88"/>
+  <rect x="22" y="41" width="20" height="3.5" rx="1.2" fill="url(#print)"/>
+  <!-- bed -->
+  <rect x="17" y="46" width="30" height="3" rx="1.5" fill="#8a94a1"/>
+</svg>
