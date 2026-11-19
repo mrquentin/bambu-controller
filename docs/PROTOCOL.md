@@ -7,7 +7,9 @@ The printer must be in **LAN Only Mode** (recent firmware also needs **Developer
 third-party control). Credentials everywhere: user `bblp`, password = 8-char access code.
 
 TLS: every service uses a per-device certificate (CN = serial) signed by the self-signed
-"BBL CA" (embedded in LanBu as `bambuCertificateString`). This app accepts it without pinning.
+"BBL CA" (embedded in LanBu as `bambuCertificateString`; saved here as `server/bambu/bbl-ca.pem`).
+This app verifies the chain against that CA and requires CN = the printer's serial number
+(verified on an X1C for ports 8883, 990, 6000 and 322).
 
 ## Services
 

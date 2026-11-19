@@ -21,7 +21,16 @@
   // Manual entry.
   let showManual = $state(false);
   let skipTest = $state(false);
-  let form = $state<PrinterFormValue>({ name: '', model: '', serial: '', ip: '', accessCode: '', camera: 'auto' });
+  let form = $state<PrinterFormValue>({
+    name: '',
+    model: '',
+    serial: '',
+    ip: '',
+    accessCode: '',
+    camera: 'auto',
+    tlsVerify: true,
+  });
+  let tlsVerify = $state(true);
 
   async function scan() {
     scanning = true;
@@ -65,6 +74,7 @@
           ip: selected.ip,
           accessCode: accessCode.trim(),
           camera: 'auto',
+          tlsVerify,
         },
       });
       toast(`Connected to ${name}`, 'success');
@@ -173,6 +183,13 @@
       </label>
 
       {#if connectError}<div class="alert error">{connectError}</div>{/if}
+
+      {#if !tlsVerify || /certificate/i.test(connectError ?? '')}
+        <label class="row small">
+          <input type="checkbox" bind:checked={tlsVerify} disabled={connecting} />
+          Verify printer certificate (recommended)
+        </label>
+      {/if}
 
       <div class="row">
         <span class="spacer"></span>

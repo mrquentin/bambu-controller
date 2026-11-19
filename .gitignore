@@ -3,3 +3,9 @@ web/dist/
 data/
 *.log
 .env
+.env.*
+!.env.example
+*.pem
+!server/bambu/bbl-ca.pem
+*.key
+sbom.json

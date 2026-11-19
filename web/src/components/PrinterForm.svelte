@@ -6,6 +6,7 @@
     ip: string;
     accessCode: string;
     camera: 'auto' | 'jpeg' | 'rtsps' | 'none';
+    tlsVerify: boolean;
   }
 </script>
 
@@ -89,6 +90,13 @@
       </select>
     </label>
   </div>
+
+  <label class="row small">
+    <input type="checkbox" bind:checked={value.tlsVerify} />
+    <span>
+      Verify printer certificate <span class="muted">(recommended — checks it is signed by Bambu Lab and matches the serial)</span>
+    </span>
+  </label>
 
   <p class="muted small">
     The access code and serial number are on the printer: <i>Settings → Network / LAN only mode</i> and

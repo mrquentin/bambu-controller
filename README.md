@@ -42,11 +42,13 @@ On first visit you create the admin account.
 ### Docker
 
 ```bash
+echo "APP_SECRET=$(openssl rand -base64 32)" > .env   # encrypts printer access codes
 docker compose up -d --build
 ```
 
-The compose file uses host networking so SSDP discovery can see the printers. Data (SQLite DB)
-lives in `./data`.
+The compose file uses host networking so SSDP discovery can see the printers, and runs the
+container hardened (read-only root filesystem, no capabilities, non-root user). Data (SQLite DB)
+lives in `./data`; keep `.env` (the encryption key) outside of your backups of `./data`.
 
 ### Development
 
@@ -62,15 +64,29 @@ npm run check          # type-check server and frontend
 |---|---|---|
 | `PORT` / `HOST` | `8080` / `0.0.0.0` | listen address |
 | `DATA_DIR` | `./data` | SQLite database location |
-| `FFMPEG_PATH` | `ffmpeg` | ffmpeg binary for RTSPS cameras |
-| `COOKIE_SECURE` | `false` | set `true` when served over HTTPS |
-| `TRUST_PROXY` | `false` | set `true` behind a reverse proxy |
-| `SESSION_TTL_DAYS` | `30` | session lifetime |
+| `APP_SECRET` | *(generated `data/secret.key`)* | key for encrypting printer access codes at rest (16+ chars) |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | — | serve HTTPS directly (enables secure cookies + HSTS) |
+| `COOKIE_SECURE` | `false` | set `true` when HTTPS is terminated by a reverse proxy |
+| `TRUST_PROXY` | `false` | set `true` behind a reverse proxy (correct client IPs) |
+| `SESSION_TTL_DAYS` / `SESSION_IDLE_HOURS` | `30` / `72` | absolute / idle session lifetime |
+| `RATE_LIMIT_PER_MINUTE` | `600` | API requests per minute per IP |
+| `ALLOW_PUBLIC_PRINTER_HOSTS` | `false` | allow printer addresses outside private/LAN ranges |
+| `PRINTER_EXTRA_CA_FILE` | — | extra CA (PEM) for printers not signed by the Bambu CA |
+| `AUDIT_RETENTION_DAYS` | `90` | how long the security log is kept |
+| `FFMPEG_PATH` | `ffmpeg` | ffmpeg binary for RTSPS cameras / AVI playback |
 
-## Security notes
+## Security
 
-- Access codes are stored in the SQLite database in plain text (they are needed to talk to
-  the printer). Protect the data directory. They are never sent to the browser.
-- Printers use self-signed certificates; TLS is used but the certificate is not pinned.
+The app was hardened and reviewed; see [docs/SECURITY_REVIEW.md](docs/SECURITY_REVIEW.md)
+for findings, fixes, accepted risks, monitoring and the incident-response runbook. Highlights:
+
+- Printer connections verify the printer's certificate against Bambu Lab's CA and its serial
+  number (can be disabled per printer for models with a different CA).
+- Access codes are encrypted at rest (AES-256-GCM) and never sent to the browser.
+- Strict CSP and security headers, CSRF protection, rate limiting, account lockout, password
+  policy, idle session timeout, session revocation and a security audit log (Settings).
+- Printer addresses are restricted to the local network; uploads are limited to `.3mf`/`.gcode`.
 - Every user has full control over every printer. Don't expose the app to the internet
-  without a reverse proxy with HTTPS.
+  without HTTPS (and ideally a reverse proxy with SSO/MFA in front).
+
+Report security issues privately to the maintainer rather than in public issues.

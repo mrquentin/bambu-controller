@@ -23,6 +23,7 @@
         ip: d.printer.ip,
         accessCode: '',
         camera: d.printer.camera,
+        tlsVerify: d.printer.tls_verify !== 0,
       };
     } catch (err) {
       error = (err as Error).message;

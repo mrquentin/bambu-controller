@@ -53,10 +53,13 @@
         bind:value={password}
         autocomplete={setup ? 'new-password' : 'current-password'}
         required
-        minlength={setup ? 8 : undefined}
+        minlength={setup ? 10 : undefined}
       />
     </label>
     {#if setup}
+      <span class="muted small">
+        At least 10 characters with 3 of: lowercase, uppercase, digits, symbols — or a passphrase of 16+ characters.
+      </span>
       <label class="field">
         Confirm password
         <input type="password" bind:value={confirm} autocomplete="new-password" required />

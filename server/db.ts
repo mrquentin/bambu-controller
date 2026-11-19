@@ -3,13 +3,19 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.ts';
 
-fs.mkdirSync(config.dataDir, { recursive: true });
+// Owner-only permissions for the data directory and files (no-op on Windows).
+fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+const dbPath = path.join(config.dataDir, 'bambu-controller.db');
 
-export const db = new DatabaseSync(path.join(config.dataDir, 'bambu-controller.db'));
+export const db = new DatabaseSync(dbPath);
+try {
+  fs.chmodSync(dbPath, 0o600);
+} catch {}
 
 db.exec(`
   PRAGMA journal_mode = WAL;
   PRAGMA foreign_keys = ON;
+  PRAGMA secure_delete = ON;
 
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY,
@@ -34,10 +40,34 @@ db.exec(`
     camera      TEXT    NOT NULL DEFAULT 'auto',
     created_at  INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id       INTEGER PRIMARY KEY,
+    at       INTEGER NOT NULL,
+    user_id  INTEGER,
+    username TEXT,
+    ip       TEXT,
+    action   TEXT    NOT NULL,
+    outcome  TEXT    NOT NULL DEFAULT 'success',
+    detail   TEXT
+  );
+  CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log(at);
 `);
+
+/** Additive migrations for databases created by earlier versions. */
+function addColumn(table: string, column: string, definition: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+addColumn('printers', 'tls_verify', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('sessions', 'created_at', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('sessions', 'last_seen_at', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('sessions', 'ip', 'TEXT');
+addColumn('sessions', 'user_agent', 'TEXT');
 
 export type CameraSetting = 'auto' | 'jpeg' | 'rtsps' | 'none';
 
+/** Printer as used in memory: `access_code` is always the decrypted value. */
 export interface PrinterRow {
   id: number;
   name: string;
@@ -46,6 +76,8 @@ export interface PrinterRow {
   ip: string;
   access_code: string;
   camera: CameraSetting;
+  /** 1 = verify the printer's TLS certificate against the Bambu CA (CN = serial). */
+  tls_verify: number;
   created_at: number;
 }
 

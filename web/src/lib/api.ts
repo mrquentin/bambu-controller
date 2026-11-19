@@ -44,6 +44,7 @@ export interface PrinterInfo {
   serial: string;
   ip: string;
   camera: 'auto' | 'jpeg' | 'rtsps' | 'none';
+  tls_verify: number;
   created_at: number;
 }
 

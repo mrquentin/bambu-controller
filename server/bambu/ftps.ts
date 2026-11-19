@@ -1,5 +1,6 @@
 import { Writable, type Readable } from 'node:stream';
 import { Client, type FileInfo } from 'basic-ftp';
+import { printerTlsOptions, type TlsTarget } from './tls.ts';
 
 /**
  * Printer storage (SD card / internal storage) over implicit FTPS on port 990,
@@ -10,15 +11,18 @@ export class PrinterFtps {
   private queue: Promise<unknown> = Promise.resolve();
   private ip: string;
   private accessCode: string;
+  private trust: TlsTarget;
 
-  constructor(ip: string, accessCode: string) {
+  constructor(ip: string, accessCode: string, trust: TlsTarget) {
     this.ip = ip;
     this.accessCode = accessCode;
+    this.trust = trust;
   }
 
-  configure(ip: string, accessCode: string) {
+  configure(ip: string, accessCode: string, trust: TlsTarget) {
     this.ip = ip;
     this.accessCode = accessCode;
+    this.trust = trust;
   }
 
   private async connect(): Promise<Client> {
@@ -34,7 +38,8 @@ export class PrinterFtps {
         // resume the control connection's TLS session. basic-ftp copies these options
         // onto the data socket; without `host` Node won't resume the session there
         // and the server answers "522 session reuse required".
-        secureOptions: { rejectUnauthorized: false, host: this.ip },
+        // Certificate verification follows the printer's trust policy (tls.ts).
+        secureOptions: { ...printerTlsOptions(this.trust), host: this.ip },
       });
       return client;
     } catch (err) {
@@ -157,6 +162,8 @@ export class PrinterFtps {
 export function safeRemotePath(input: unknown): string {
   const raw = typeof input === 'string' ? input : '/';
   const parts = raw.replace(/\\/g, '/').split('/').filter(Boolean);
-  if (parts.some((p) => p === '..' || p === '.')) throw new Error('Invalid path');
+  if (parts.some((p) => p === '..' || p === '.' || /[\u0000-\u001f\u007f]/.test(p)) || raw.length > 1024) {
+    throw Object.assign(new Error('Invalid path'), { statusCode: 400 });
+  }
   return `/${parts.join('/')}`;
 }

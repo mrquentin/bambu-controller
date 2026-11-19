@@ -8,7 +8,22 @@ services:
     network_mode: host
     environment:
       PORT: 8080
+      # Key for encrypting printer access codes at rest. Keep it out of the
+      # data volume (e.g. in a .env file next to this compose file):
+      APP_SECRET: ${APP_SECRET:?Set APP_SECRET (e.g. openssl rand -base64 32) in .env}
       # COOKIE_SECURE: "true"   # when served over HTTPS (reverse proxy)
       # TRUST_PROXY: "true"     # when behind a reverse proxy
+      # TLS_CERT_FILE: /certs/fullchain.pem   # or terminate HTTPS here
+      # TLS_KEY_FILE: /certs/privkey.pem
     volumes:
       - ./data:/data
+    # Container hardening
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 1g

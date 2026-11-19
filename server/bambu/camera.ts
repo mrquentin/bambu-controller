@@ -3,11 +3,14 @@ import { EventEmitter } from 'node:events';
 import tls from 'node:tls';
 import { config } from '../config.ts';
 import type { CameraKind } from './models.ts';
+import { BBL_CA_FILE, describeTlsError, printerTlsOptions } from './tls.ts';
 
 export interface CameraTarget {
   kind: CameraKind;
   ip: string;
   accessCode: string;
+  serial: string;
+  tls_verify: number;
 }
 
 interface FrameSource {
@@ -29,7 +32,7 @@ class JpegTcpSource extends EventEmitter implements FrameSource {
 
   constructor(target: CameraTarget) {
     super();
-    this.socket = tls.connect({ host: target.ip, port: 6000, rejectUnauthorized: false, timeout: 15_000 });
+    this.socket = tls.connect({ host: target.ip, port: 6000, timeout: 15_000, ...printerTlsOptions(target) });
     this.socket.on('secureConnect', () => {
       const auth = Buffer.alloc(80);
       auth.writeUInt32LE(0x40, 0);
@@ -40,7 +43,7 @@ class JpegTcpSource extends EventEmitter implements FrameSource {
     });
     this.socket.on('data', (chunk) => this.onData(chunk));
     this.socket.on('timeout', () => this.finish('Camera connection timed out'));
-    this.socket.on('error', (err) => this.finish(err.message));
+    this.socket.on('error', (err) => this.finish(describeTlsError(err) ?? err.message));
     this.socket.on('close', () => this.finish('Camera connection closed'));
   }
 
@@ -91,8 +94,11 @@ class RtspsFfmpegSource extends EventEmitter implements FrameSource {
         '-hide_banner',
         '-loglevel', 'error',
         '-rtsp_transport', 'tcp',
-        // Printers use self-signed certs; newer ffmpeg (7+/9) verifies TLS by default.
-        '-tls_verify', '0',
+        // Same trust policy as the other clients: Bambu CA + CN must equal the serial.
+        // (Newer ffmpeg verifies by default; without a CA it would always fail.)
+        ...(target.tls_verify
+          ? ['-tls_verify', '1', '-ca_file', BBL_CA_FILE, '-verifyhost', target.serial.toUpperCase()]
+          : ['-tls_verify', '0']),
         '-timeout', '10000000', // socket I/O timeout (µs)
         '-fflags', 'nobuffer',
         '-flags', 'low_delay',

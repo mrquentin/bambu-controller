@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { PrinterRow } from '../db.ts';
 import * as cmd from './commands.ts';
+import { describeTlsError, printerTlsOptions } from './tls.ts';
 
 export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'error';
 
@@ -10,7 +11,13 @@ export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'error';
  * One-shot credential check used before saving a printer: connect over MQTT,
  * subscribe to the report topic and wait for the first message.
  */
-export function testConnection(ip: string, serial: string, accessCode: string, timeoutMs = 12_000) {
+export function testConnection(
+  ip: string,
+  serial: string,
+  accessCode: string,
+  tlsVerify: number,
+  timeoutMs = 12_000,
+) {
   return new Promise<{ ok: true } | { ok: false; error: string }>((resolve) => {
     const client = mqtt.connect({
       protocol: 'mqtts',
@@ -22,7 +29,7 @@ export function testConnection(ip: string, serial: string, accessCode: string, t
       protocolVersion: 4,
       connectTimeout: timeoutMs,
       reconnectPeriod: 0,
-      rejectUnauthorized: false,
+      ...printerTlsOptions({ serial, tls_verify: tlsVerify }),
     });
     let connected = false;
     const finish = (result: { ok: true } | { ok: false; error: string }) => {
@@ -57,11 +64,11 @@ export function testConnection(ip: string, serial: string, accessCode: string, t
       const msg = err.message || String(err);
       finish({
         ok: false,
-        error: /Not authorized|Bad username or password|Connection refused: Not/i.test(msg)
+        error: describeTlsError(err) ?? (/Not authorized|Bad username or password|Connection refused: Not/i.test(msg)
           ? 'Wrong access code.'
           : /connack timeout|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(msg)
             ? `No answer from ${ip}:8883 — is the printer on and in LAN mode?`
-            : msg,
+            : msg),
       });
     });
   });
@@ -157,9 +164,8 @@ export class PrinterConnection extends EventEmitter {
       keepalive: 30,
       connectTimeout: 10_000,
       reconnectPeriod: 5_000,
-      // Printers use a self-signed per-device cert (CN = serial) issued by the
-      // Bambu CA; on a LAN we accept it rather than pinning, like the official apps.
-      rejectUnauthorized: false,
+      // Verify the printer's certificate (Bambu CA, CN = serial); see tls.ts.
+      ...printerTlsOptions(this.row),
     });
     this.client = client;
 
@@ -181,9 +187,9 @@ export class PrinterConnection extends EventEmitter {
 
     client.on('error', (err) => {
       const msg = err.message || String(err);
-      this.error = /Not authorized|Bad username or password/i.test(msg)
+      this.error = describeTlsError(err) ?? (/Not authorized|Bad username or password/i.test(msg)
         ? 'Authentication failed — check the access code (it changes when LAN mode is toggled).'
-        : msg;
+        : msg);
       this.setStatus('error');
     });
 
@@ -208,7 +214,10 @@ export class PrinterConnection extends EventEmitter {
   /** Reconfigure after an edit (IP / access code / serial may have changed). */
   update(row: PrinterRow) {
     const reconnect =
-      row.ip !== this.row.ip || row.access_code !== this.row.access_code || row.serial !== this.row.serial;
+      row.ip !== this.row.ip ||
+      row.access_code !== this.row.access_code ||
+      row.serial !== this.row.serial ||
+      row.tls_verify !== this.row.tls_verify;
     this.row = row;
     if (reconnect) {
       this.state = {};
