@@ -52,6 +52,10 @@ export interface Connection {
   status: 'connecting' | 'online' | 'offline' | 'error';
   error: string | null;
   lastReportAt: number;
+  /** Online but no report for a while: values may be outdated. */
+  stale: boolean;
+  /** Epoch ms of the next reconnect attempt, if one is scheduled. */
+  nextRetryAt: number | null;
 }
 
 export interface PrinterSummary {

@@ -14,7 +14,9 @@
  * The next demo print starts by itself shortly after one finishes or is stopped
  * (set FAKE_AUTO_PRINT=0 to disable), which keeps the print history moving.
  * Type a key + Enter to drive print-job events (for notifications):
- * s start · p pause (runout) · r resume · f finish · x fail · h HMS alert · ? help.
+ * s start · p pause (runout) · r resume · f finish · x fail · h HMS alert ·
+ * z stop/resume reporting (the MQTT socket stays open, like a printer whose
+ * Wi-Fi dropped or that went to sleep: the app flags it stale, then reconnects) · ? help.
  */
 import { spawn } from 'node:child_process';
 import net from 'node:net';
@@ -92,7 +94,10 @@ broker.authenticate = (_client, username, password, done) => {
 };
 
 const reportTopic = `device/${SERIAL}/report`;
+/** Toggled with `z`: keep connections open but send nothing (simulates a silent printer). */
+let silent = false;
 const publish = (payload: unknown) =>
+  !silent &&
   broker.publish(
     { cmd: 'publish', topic: reportTopic, payload: Buffer.from(JSON.stringify(payload)), qos: 0, retain: false, dup: false },
     () => {},
@@ -290,7 +295,7 @@ tls
 
 // ---------------------------------------------------------------- keyboard
 
-const HELP = 'Keys (+ Enter): s start · p pause (runout) · r resume · f finish · x fail · h HMS alert · ? help';
+const HELP = 'Keys (+ Enter): s start · p pause (runout) · r resume · f finish · x fail · h HMS alert · z silence on/off · ? help';
 const update = (patch: Record<string, unknown>) => {
   Object.assign(state, patch);
   publish({ print: { command: 'push_status', ...patch } });
@@ -306,6 +311,10 @@ const actions: Record<string, () => void> = {
   f: () => update({ gcode_state: 'FINISH', mc_percent: 100, layer_num: state.total_layer_num, mc_remaining_time: 0, print_error: 0 }),
   x: () => update({ gcode_state: 'FAILED', print_error: 0x0300400c }),
   h: () => update({ hms: [...state.hms, { attr: 0x03001000, code: 0x00020000 + Math.floor(Math.random() * 0xffff) }] }),
+  z: () => {
+    silent = !silent;
+    console.log(silent ? 'silent: reports stopped (connections stay open)' : 'reporting again');
+  },
   '?': () => console.log(HELP),
 };
 readline.createInterface({ input: process.stdin }).on('line', (line) => {

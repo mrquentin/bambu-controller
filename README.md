@@ -95,6 +95,7 @@ In Unraid: **Docker → Add Container → Template:** paste the template URL
 npm run dev            # API on :8080 (auto-restart) + Vite on :5173
 npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678);
                        # queues demo prints by itself (FAKE_AUTO_PRINT=0 to disable)
+                       # type z + Enter to stop/resume its reports (stale-data test)
 npm test               # unit + API tests
 npm run check          # type-check server and frontend
 ```
