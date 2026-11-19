@@ -33,6 +33,10 @@ updates:
       # svelte-check supports TypeScript ^5 || ^6 only; revisit when it supports 7.
       - dependency-name: typescript
         versions: ['>=7']
+      # Preset 10 needs conventional-changelog-writer 9; semantic-release 25
+      # still bundles writer 8 (broke the release in #3). Revisit with semantic-release 26.
+      - dependency-name: conventional-changelog-conventionalcommits
+        versions: ['>=10']
       # Types must match the Node.js runtime (24); bump together with the runtime.
       - dependency-name: '@types/node'
         update-types: [version-update:semver-major]
