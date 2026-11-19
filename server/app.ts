@@ -27,7 +27,7 @@ export async function buildApp(options: BuildOptions = {}) {
   const app = Fastify({
     ...(https ? { https } : {}),
     logger: options.logLevel === false ? false : {
-      level: options.logLevel ?? process.env.LOG_LEVEL ?? 'info',
+      level: options.logLevel ?? (process.env.LOG_LEVEL?.trim() || 'info'),
       // Never log cookies or credentials.
       redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
     },

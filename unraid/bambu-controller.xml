@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>bambu-controller</Name>
+  <Repository>ghcr.io/mrquentin/bambu-controller:latest</Repository>
+  <Registry>https://github.com/mrquentin/bambu-controller/pkgs/container/bambu-controller</Registry>
+  <!-- Host networking so SSDP discovery (UDP 2021/1990) can see the printers. -->
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/mrquentin/bambu-controller/issues</Support>
+  <Project>https://github.com/mrquentin/bambu-controller</Project>
+  <ReadMe>https://github.com/mrquentin/bambu-controller#readme</ReadMe>
+  <Overview>Self-hosted web app to monitor and control Bambu Lab 3D printers in LAN Only Mode - no cloud, no account.&#xD;
+&#xD;
+Live camera (A1/P1 JPEG, X1/H2/P2S RTSPS), print job control, temperatures, fans, lights, motion, AMS, HMS alerts, SD card browser with timelapse player, G-code console, multi-user login and a security audit log.&#xD;
+&#xD;
+Before the first start:&#xD;
+1. Set APP_SECRET to a long random string (e.g. openssl rand -base64 32). It encrypts the printers' access codes; keep a copy, the database can't be decrypted without it.&#xD;
+2. The container runs as nobody:users (99:100). If the appdata folder already exists with another owner, run: chown -R 99:100 /mnt/user/appdata/bambu-controller&#xD;
+&#xD;
+On each printer enable LAN Only Mode (and Developer Mode on recent firmware); on X1-series printers also enable LAN Mode Liveview. Then open the web UI, create the first account and add the printers (they are discovered automatically).</Overview>
+  <Category>HomeAutomation: Tools:Utilities</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/mrquentin/bambu-controller/main/unraid/bambu-controller.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/mrquentin/bambu-controller/main/web/public/icon-512.png</Icon>
+  <!-- Hardened runtime: unprivileged user, read-only root filesystem, no capabilities. -->
+  <ExtraParams>--user 99:100 --read-only --tmpfs /tmp:size=64m --cap-drop=ALL --security-opt no-new-privileges:true --pids-limit 256 --memory 1g</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Bambu Lab printer(s) on the same network, in LAN Only Mode.</Requires>
+  <Config Name="Appdata" Target="/data" Default="/mnt/user/appdata/bambu-controller" Mode="rw" Description="Database (accounts, printers, audit log). Must be writable by nobody:users (99:100)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bambu-controller</Config>
+  <Config Name="APP_SECRET" Target="APP_SECRET" Default="" Mode="" Description="Required. Encrypts the printers' access codes at rest (16+ characters, e.g. the output of: openssl rand -base64 32). Keep a copy: changing or losing it makes the stored access codes unreadable (re-enter them in each printer's settings)." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Web UI port" Target="PORT" Default="8080" Mode="" Description="Port the web UI listens on (host networking: change it here if 8080 is already used, then open http://[server]:[port])." Type="Variable" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Secure cookies (HTTPS)" Target="COOKIE_SECURE" Default="false|true" Mode="" Description="Set to true when the UI is reached over HTTPS through a reverse proxy (SWAG, Nginx Proxy Manager, Traefik...). Enables Secure cookies and HSTS." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Trust reverse proxy" Target="TRUST_PROXY" Default="false|true" Mode="" Description="Set to true behind a reverse proxy so rate limiting and the audit log see the real client IPs." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Session idle timeout (hours)" Target="SESSION_IDLE_HOURS" Default="72" Mode="" Description="Sign out sessions unused for this long." Type="Variable" Display="advanced" Required="false" Mask="false">72</Config>
+  <Config Name="Session lifetime (days)" Target="SESSION_TTL_DAYS" Default="30" Mode="" Description="Maximum session lifetime." Type="Variable" Display="advanced" Required="false" Mask="false">30</Config>
+  <Config Name="Allow printers outside the LAN" Target="ALLOW_PUBLIC_PRINTER_HOSTS" Default="false|true" Mode="" Description="Printer addresses are restricted to private/LAN ranges. Set to true only if printers are reached through public addresses (e.g. a routed VPN)." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+  <Config Name="Audit log retention (days)" Target="AUDIT_RETENTION_DAYS" Default="90" Mode="" Description="How long security events are kept (Settings - Security log)." Type="Variable" Display="advanced" Required="false" Mask="false">90</Config>
+  <Config Name="Log level" Target="LOG_LEVEL" Default="info|warn|error|debug" Mode="" Description="Container log verbosity." Type="Variable" Display="advanced" Required="false" Mask="false">info</Config>
+</Container>

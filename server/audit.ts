@@ -13,7 +13,7 @@ export interface AuditEntry {
   username?: string | null;
 }
 
-const RETENTION_DAYS = Number(process.env.AUDIT_RETENTION_DAYS ?? 90);
+const RETENTION_DAYS = Number(process.env.AUDIT_RETENTION_DAYS?.trim() || 90);
 let logger: FastifyBaseLogger | null = null;
 
 export function setAuditLogger(log: FastifyBaseLogger) {
