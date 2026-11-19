@@ -19,7 +19,7 @@
     ({ chamber_light: 'Chamber light', chamber_light2: 'Chamber light 2', work_light: 'Work light' })[node] ?? node;
 </script>
 
-<section class="card stack">
+<section class="card stack job">
   <header style="margin:0">
     <h2>Print job</h2>
     <span class="badge plain tone-{st.tone}">{st.label}</span>
@@ -98,5 +98,13 @@
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: 6px;
+  }
+  .job {
+    container-type: inline-size;
+  }
+  @container (max-width: 460px) {
+    .speeds {
+      grid-template-columns: repeat(2, 1fr);
+    }
   }
 </style>

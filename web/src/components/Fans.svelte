@@ -60,4 +60,10 @@
   .pct {
     text-align: right;
   }
+  @media (max-width: 420px) {
+    .fan {
+      grid-template-columns: 84px 1fr 40px;
+      gap: 8px;
+    }
+  }
 </style>

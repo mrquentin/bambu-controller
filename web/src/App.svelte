@@ -56,14 +56,14 @@
   <Login setup={auth.setupRequired} onAuthenticated={refreshAuth} />
 {:else}
   <nav class="topbar">
-    <a class="brand" href="#/">
+    <a class="brand" href="#/" aria-label="Bambu Controller">
       <img src="/favicon.svg" alt="" width="28" height="28" />
-      Bambu Controller
+      <span class="brand-name">Bambu Controller</span>
     </a>
     <span class="spacer"></span>
     <ThemeSwitcher />
     <a class="btn small" href="#/settings">Settings</a>
-    <span class="muted small">{auth.user.username}</span>
+    <span class="muted small user">{auth.user.username}</span>
     <button class="small ghost" onclick={logout}>Log out</button>
   </nav>
 

@@ -65,8 +65,8 @@
   <div class="empty">Connecting…</div>
 {:else}
   <div class="container stack">
-    <div class="row">
-      <div class="stack" style="gap:0">
+    <div class="row head">
+      <div class="stack title" style="gap:0">
         <nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Printers</a><span>›</span></nav>
         <h1>{data.printer.name}</h1>
         <span class="muted small">{data.printer.model} · {data.printer.ip} · <span class="mono">{data.printer.serial}</span></span>
@@ -178,6 +178,13 @@
     display: flex;
     gap: 4px;
     border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .head .title {
+    min-width: 0;
+    flex: 1 1 260px;
+    overflow-wrap: anywhere;
   }
   .tabs a {
     position: relative;
@@ -204,45 +211,45 @@
     margin-left: 4px;
     vertical-align: middle;
   }
-  @media (max-width: 900px) {
-    .layout,
+  /* Tablet: camera spans the full width, the remaining cards pair up. */
+  @media (max-width: 1100px) {
     .control {
-    display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr);
-    grid-template-areas:
-      'camera side'
-      'job motion'
-      'wide wide';
-    gap: 16px;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-areas:
+        'camera camera'
+        'side side'
+        'job motion'
+        'wide wide';
+    }
+    .area-side {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
   }
-  .area-camera {
-    grid-area: camera;
-  }
-  .area-side {
-    grid-area: side;
-  }
-  .area-job {
-    grid-area: job;
-  }
-  .area-motion {
-    grid-area: motion;
-  }
-  .area-wide {
-    grid-area: wide;
-  }
-  .area-wide:empty {
-    display: none;
-  }
-  /* Single cards fill their grid cell so neighbours end at the same line. */
-  .control > div:not(.col) {
-    display: flex;
-    flex-direction: column;
-  }
-  .control > div:not(.col) > :global(*) {
-    flex: 1;
-  }
-  .layout.info {
+  @media (max-width: 900px) {
+    .layout.info {
       grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  /* Phone: a single column, ordered by what matters most while printing. */
+  @media (max-width: 700px) {
+    .control {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'camera'
+        'job'
+        'side'
+        'motion'
+        'wide';
+      gap: 12px;
+    }
+    .area-side {
+      display: flex;
+      gap: 12px;
+    }
+    .tabs a {
+      padding: 10px 12px;
+      white-space: nowrap;
     }
   }
 </style>
