@@ -1,0 +1,54 @@
+{
+  "$comment": "Versioning from Conventional Commits on main: fix -> patch, feat -> minor, '!' / BREAKING CHANGE -> major. Tags vX.Y.Z and a GitHub Release; the version is handed to the image build through $GITHUB_OUTPUT.",
+  "branches": ["main"],
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "type": "perf", "release": "patch" },
+          { "type": "refactor", "release": "patch" },
+          { "type": "deps", "release": "patch" },
+          { "type": "build", "scope": "deps", "release": "patch" },
+          { "type": "chore", "scope": "deps", "release": "patch" }
+        ]
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Features" },
+            { "type": "fix", "section": "Bug Fixes" },
+            { "type": "perf", "section": "Performance" },
+            { "type": "refactor", "section": "Refactoring" },
+            { "type": "deps", "section": "Dependencies" },
+            { "type": "build", "section": "Build" },
+            { "type": "chore", "scope": "deps", "section": "Dependencies" },
+            { "type": "docs", "section": "Documentation", "hidden": true },
+            { "type": "ci", "section": "CI", "hidden": true },
+            { "type": "test", "section": "Tests", "hidden": true }
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/exec",
+      {
+        "verifyReleaseCmd": "echo \"version=${nextRelease.version}\" >> \"$GITHUB_OUTPUT\""
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "successComment": false,
+        "failComment": false,
+        "releasedLabels": false
+      }
+    ]
+  ]
+}

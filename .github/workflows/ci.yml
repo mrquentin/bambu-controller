@@ -1,21 +1,29 @@
 name: CI
 
+# Runs on every pull request (required checks for merging into main) and is
+# reused by the release pipeline before a version is cut.
 on:
-  push:
-    branches: [main, master]
   pull_request:
+  workflow_call:
+  workflow_dispatch:
 
 # Least privilege: the workflow only reads the repository.
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  check:
+  test:
+    name: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0 # full history for the secret scan
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -24,14 +32,19 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - name: Dependency audit (fail on high/critical)
-        run: npm audit --audit-level=high
+      - name: Unit & API tests
+        run: npm test
 
       - name: Type check
         run: npm run check
 
       - name: Build
         run: npm run build
+
+      - name: Dependency audit
+        run: |
+          npm audit --omit=dev --audit-level=moderate   # shipped dependencies: no known vulnerabilities
+          npm audit --audit-level=high                  # dev tooling: nothing high/critical
 
       - name: SBOM
         run: npm sbom --sbom-format=cyclonedx --omit=dev > sbom.json
@@ -40,24 +53,59 @@ jobs:
         with:
           name: sbom
           path: sbom.json
+          retention-days: 30
 
   secrets:
+    name: secrets
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # full history
+          persist-credentials: false
       - name: gitleaks
-        run: |
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --no-banner --redact --exit-code 1
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --no-banner --redact --exit-code 1
 
   image:
+    name: image
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Build image
-        run: docker build -t bambu-controller:ci .
-      - name: Trivy (fail on high/critical with a fix available)
+        run: docker build --build-arg APP_VERSION=ci -t bambu-controller:ci .
+
+      - name: Trivy (fail on fixable high/critical)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.2 \
             image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed bambu-controller:ci
+
+      - name: Smoke test (hardened runtime)
+        run: |
+          docker run -d --name smoke -p 8080:8080 --read-only --tmpfs /tmp --cap-drop ALL \
+            --security-opt no-new-privileges:true -e APP_SECRET="$(openssl rand -base64 32)" bambu-controller:ci
+          for _ in $(seq 1 30); do
+            status=$(docker inspect -f '{{.State.Health.Status}}' smoke)
+            [ "$status" = healthy ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' smoke | grep -qx healthy || { docker logs smoke; exit 1; }
+          curl -fsS http://localhost:8080/api/health | tee /dev/stderr | grep -q '"version":"ci"'
+          docker rm -f smoke
+
+  dependency-review:
+    name: dependency-review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: high

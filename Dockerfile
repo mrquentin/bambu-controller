@@ -2,7 +2,9 @@
 ARG NODE_IMAGE=node:24.22.3-alpine3.24@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 
 # --- build the frontend ---
-FROM ${NODE_IMAGE} AS build
+# Runs on the build machine's native platform: the output (static files) is
+# architecture-independent, so multi-arch builds don't emulate this stage.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --ignore-scripts
@@ -11,13 +13,16 @@ RUN npm run build
 
 # --- runtime ---
 FROM ${NODE_IMAGE}
+# Release version (injected by the release pipeline from semantic-release).
+ARG APP_VERSION=dev
 # ffmpeg transcodes RTSPS cameras (X1 / H2 / P2S) and AVI timelapses. Upgrade
 # the base packages so security fixes newer than the base image are applied.
 RUN apk upgrade --no-cache && apk add --no-cache ffmpeg
 WORKDIR /app
 ENV NODE_ENV=production \
     DATA_DIR=/data \
-    PORT=8080
+    PORT=8080 \
+    APP_VERSION=${APP_VERSION}
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
     # Package managers aren't needed at runtime; removing them shrinks the attack surface.

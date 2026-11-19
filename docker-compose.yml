@@ -1,6 +1,11 @@
 services:
   bambu-controller:
+    # Published by the release pipeline (signed provenance, amd64 + arm64).
+    # Pin a version (e.g. :0.2.0) for reproducible deployments.
+    image: ghcr.io/mrquentin/bambu-controller:latest
+    # To build from source instead: docker compose build  (uses this Dockerfile)
     build: .
+    pull_policy: missing
     container_name: bambu-controller
     restart: unless-stopped
     # Host networking lets SSDP discovery (UDP 2021/1990) see the printers.
