@@ -33,7 +33,7 @@
     "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@types/node": "24.19.2",
     "aedes": "1.2.0",
-    "concurrently": "9.2.5",
+    "concurrently": "10.0.7",
     "conventional-changelog-conventionalcommits": "9.3.1",
     "selfsigned": "5.5.0",
     "semantic-release": "25.0.9",
