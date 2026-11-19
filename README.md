@@ -15,7 +15,11 @@ no cloud, no account, just your printers.
 - 🧵 AMS units and trays (color, type, remaining, humidity), load / unload
 - ⚠ HMS health alerts with lookup links
 - 📁 Storage browser over FTPS: upload, download, delete, start a print from a `.3mf`
+- 📊 Print history and statistics per printer and overall: every job with its outcome,
+  duration (pauses excluded) and layers; success rate and total print time
+- ⊘ Skip objects of a running print: tap parts on the plate image or pick them from a list
 - ⌨ G-code console and command log, firmware info, raw status JSON
+- 🔔 Push notifications (browser / installed app) when a print finishes, fails, pauses or raises an HMS alert
 
 The protocol details were recovered by reverse engineering the LanBu Android app; see
 [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -38,6 +42,22 @@ npm start          # http://localhost:8080
 ```
 
 On first visit you create the admin account.
+
+### Notifications
+
+Settings → **Notifications** → *Enable on this device* turns on push notifications for that
+browser or installed app, with per-event toggles (print finished, failed/cancelled, paused /
+needs attention, HMS alerts, started) and a test button. Requirements:
+
+- **HTTPS** (or `localhost`): browsers only allow push in a secure context. Use
+  `TLS_CERT_FILE`/`TLS_KEY_FILE` or a reverse proxy with a valid certificate.
+- **Outbound internet** from the server: notifications are delivered through the browser
+  vendor's push service (Google FCM, Mozilla, Apple, Microsoft). Payloads are end-to-end
+  encrypted; the push service only sees ciphertext. No third-party account is needed.
+- **iPhone / iPad** (iOS 16.4+): add the app to the home screen first (Share → *Add to Home
+  Screen*) and enable notifications from the installed app.
+
+The server's VAPID key pair is generated on first use and stored encrypted in `data/vapid.key`.
 
 ### Docker
 
@@ -73,7 +93,8 @@ In Unraid: **Docker → Add Container → Template:** paste the template URL
 
 ```bash
 npm run dev            # API on :8080 (auto-restart) + Vite on :5173
-npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678)
+npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678);
+                       # queues demo prints by itself (FAKE_AUTO_PRINT=0 to disable)
 npm test               # unit + API tests
 npm run check          # type-check server and frontend
 ```
@@ -113,6 +134,7 @@ GitHub Release, then builds, scans, pushes and attests the image. Repository pol
 | `PRINTER_EXTRA_CA_FILE` | — | extra CA (PEM) for printers not signed by the Bambu CA |
 | `AUDIT_RETENTION_DAYS` | `90` | how long the security log is kept |
 | `FFMPEG_PATH` | `ffmpeg` | ffmpeg binary for RTSPS cameras / AVI playback |
+| `VAPID_SUBJECT` | `https://github.com/mrquentin/bambu-controller` | contact sent to browser push services (`mailto:you@example.com` or an `https:` URL) |
 
 ## Security
 

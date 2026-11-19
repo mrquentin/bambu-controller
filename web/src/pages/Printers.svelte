@@ -27,6 +27,7 @@
   <div class="row">
     <h1>Printers</h1>
     <span class="spacer"></span>
+    <a class="btn history-link" href="#/history">History</a>
     <a class="btn primary" href="#/add">
       + Add printer
     </a>
@@ -93,6 +94,15 @@
 </div>
 
 <style>
+  /* Phones only: the top bar's History link is hidden there (see App.svelte). */
+  .history-link {
+    display: none;
+  }
+  @media (max-width: 480px) {
+    .history-link {
+      display: inline-flex;
+    }
+  }
   .list {
     grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
   }

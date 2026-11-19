@@ -66,6 +66,34 @@ Bit layouts (from `BambuUtility`):
 - HMS code: `HMS_{attr>>16}_{attr&0xFFFF}_{code>>16}_{code&0xFFFF}` (hex), severity = `code >> 16`
   (1 fatal, 2 serious, 3 common, 4 info)
 
+## Skip objects
+
+Not implemented by LanBu (0.63 has no `skip_objects` / `s_obj` handling); shapes follow Bambu Studio's
+"skip parts" feature and ha-bambulab. Supported by X1 / P1 / A1 / H2 firmware from 2025 on; older firmware
+ignores the command or answers with a non-`success` `result` (shown in the command log and as a toast).
+
+- Command: `{"print":{"sequence_id":"…","command":"skip_objects","obj_list":[296,70000]}}` — ids are the
+  objects' `identify_id`s. This app only sends ids not yet skipped, and only while `gcode_state` is
+  `RUNNING` or `PAUSE`.
+- Reply: `{"print":{"command":"skip_objects","sequence_id":"…","result":"success","reason":""}}`.
+- State: `s_obj` in `push_status` lists the ids skipped so far (replaced wholesale, like other arrays).
+
+The object list comes from the job's sliced `.3mf` (a ZIP) on the printer's storage:
+
+- `Metadata/slice_info.config`: one `<plate>` per sliced plate with `<metadata key="index" value="N"/>`
+  and `<object identify_id="…" name="…" skipped="false"/>` per object (names are XML-escaped).
+  A file sent for a single plate keeps the original plate number.
+- `Metadata/plate_N.png`: plate thumbnail. `Metadata/pick_N.png`: same size, every object painted in a
+  flat color encoding its `identify_id` as little-endian RGB, `id = R + G·256 + B·65536` (the picking
+  color encoding Bambu Studio inherited from PrusaSlicer); background is transparent/black (id 0). The
+  web UI decodes the clicked pixel (snapping to the nearest object within ~2% of the width for touch),
+  ignores colors that don't decode to a known id (blended edges), and also accepts the reverse byte order.
+- Finding the file: the printed plate comes from `gcode_file` (`/data/Metadata/plate_2.gcode` → 2). The
+  archive is `gcode_file` itself when it ends in `.3mf` (`file:///sdcard/…`, `ftp:///…`, or a bare name),
+  otherwise `<subtask_name>.gcode.3mf` / `<subtask_name>.3mf` in `/cache` (Bambu Studio, Handy), `/`
+  and `/model`. Only the ZIP central directory and the three entries are fetched, with FTPS `REST` ranged
+  downloads; the parsed result is cached per printer and job.
+
 ## Camera (port 6000)
 
 Send an 80-byte auth packet: `u32le 0x40`, `u32le 0x3000`, `u32le 0`, `u32le 0`, `"bblp"` NUL-padded

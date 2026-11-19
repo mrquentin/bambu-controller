@@ -3,6 +3,8 @@ import { PrinterFtps } from './bambu/ftps.ts';
 import { cameraKindFor } from './bambu/models.ts';
 import { PrinterConnection } from './bambu/printer.ts';
 import { db, type PrinterRow } from './db.ts';
+import { history } from './history.ts';
+import { notifyPrinterEvent } from './push.ts';
 import { decrypt, encrypt, isEncrypted } from './secrets.ts';
 
 export interface ManagedPrinter {
@@ -29,6 +31,7 @@ class PrinterManager {
     for (const r of plain.filter((r) => !isEncrypted(r.access_code))) {
       db.prepare('UPDATE printers SET access_code = ? WHERE id = ?').run(encrypt(r.access_code), r.id);
     }
+    history.closeOrphans();
     const ids = db.prepare('SELECT id FROM printers ORDER BY name').all() as { id: number }[];
     for (const { id } of ids) this.add(loadRow(id));
   }
@@ -44,6 +47,8 @@ class PrinterManager {
     }));
     const ftps = new PrinterFtps(row.ip, row.access_code, row);
     this.printers.set(row.id, { connection, camera, ftps });
+    history.watch(connection);
+    connection.on('event', (event) => void notifyPrinterEvent(connection.row, event));
     connection.start();
   }
 
@@ -91,7 +96,9 @@ class PrinterManager {
   remove(id: number) {
     const managed = this.printers.get(id);
     if (!managed) return false;
+    history.unwatch(id, { removed: true });
     managed.connection.stop();
+    managed.connection.removeAllListeners('event');
     managed.camera.close();
     this.printers.delete(id);
     db.prepare('DELETE FROM printers WHERE id = ?').run(id);
@@ -100,6 +107,7 @@ class PrinterManager {
 
   shutdown() {
     for (const { connection, camera } of this.printers.values()) {
+      history.unwatch(connection.row.id);
       connection.stop();
       camera.close();
     }

@@ -13,13 +13,15 @@
   import Files from '../components/Files.svelte';
   import Console from '../components/Console.svelte';
   import Info from '../components/Info.svelte';
+  import History from '../components/History.svelte';
 
-  type Tab = 'control' | 'files' | 'info';
+  type Tab = 'control' | 'files' | 'history' | 'info';
   let { id, tab }: { id: number; tab: Tab } = $props();
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'control', label: 'Control' },
     { id: 'files', label: 'Files' },
+    { id: 'history', label: 'History' },
     { id: 'info', label: 'Info & console' },
   ];
 
@@ -103,12 +105,14 @@
           <Temperatures state={s} {online} {send} chamberControl={data.capabilities.chamberControl} />
           <Fans state={s} {online} {send} />
         </div>
-        <div class="area-job"><JobCard state={s} {online} {send} /></div>
+        <div class="area-job"><JobCard state={s} {online} {send} printerId={id} log={data.log} /></div>
         <div class="area-motion"><Motion state={s} {online} {send} /></div>
         <div class="area-wide col"><Hms state={s} /><Ams state={s} {online} {send} /></div>
       </div>
     {:else if tab === 'files'}
       <Files printerId={id} {online} />
+    {:else if tab === 'history'}
+      <History printerId={id} refreshKey={s.gcode_state} />
     {:else}
       <div class="layout info">
         <div class="col"><Info state={s} modules={data.modules} connection={data.connection} /></div>

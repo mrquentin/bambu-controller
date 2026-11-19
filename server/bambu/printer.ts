@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import mqtt, { type MqttClient } from 'mqtt';
 import type { PrinterRow } from '../db.ts';
 import * as cmd from './commands.ts';
+import { detectEvents, jobSnapshot, type JobSnapshot, type PrinterEvent } from './job-events.ts';
 import { describeTlsError, printerTlsOptions } from './tls.ts';
 
 export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'error';
@@ -125,7 +126,10 @@ export function mergeState(target: Json, patch: Json) {
   }
 }
 
-/** One persistent MQTT connection per printer. Emits `update` on any change. */
+/**
+ * One persistent MQTT connection per printer. Emits `update` on any change and
+ * `event` (a `PrinterEvent`) when a print job starts, pauses, ends or raises an HMS alert.
+ */
 export class PrinterConnection extends EventEmitter {
   row: PrinterRow;
   status: ConnectionStatus = 'offline';
@@ -135,6 +139,8 @@ export class PrinterConnection extends EventEmitter {
   lastReportAt = 0;
   log: CommandLogEntry[] = [];
   private client: MqttClient | null = null;
+  /** Last job snapshot, for lifecycle event detection (null = nothing seen yet). */
+  private lastJob: JobSnapshot | null = null;
 
   constructor(row: PrinterRow) {
     super();
@@ -222,6 +228,7 @@ export class PrinterConnection extends EventEmitter {
     if (reconnect) {
       this.state = {};
       this.modules = [];
+      this.lastJob = null;
       this.start();
     } else {
       this.emit('update');
@@ -250,6 +257,7 @@ export class PrinterConnection extends EventEmitter {
       const command = json.print.command;
       if (command === 'push_status' || command === undefined) {
         mergeState(this.state, json.print);
+        this.detectJobEvents();
       } else {
         this.pushLog('in', json);
       }
@@ -263,6 +271,20 @@ export class PrinterConnection extends EventEmitter {
       }
     }
     this.emit('update');
+  }
+
+  private detectJobEvents() {
+    const next = jobSnapshot(this.state);
+    const events = detectEvents(this.lastJob, next);
+    // Wait for a report that carries the print state before taking the baseline.
+    if (next.gcodeState !== null) this.lastJob = next;
+    for (const event of events) {
+      try {
+        this.emit('event', event satisfies PrinterEvent);
+      } catch (err) {
+        console.error('printer event listener failed', err);
+      }
+    }
   }
 
   private pushLog(direction: 'in' | 'out', payload: Json) {

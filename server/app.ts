@@ -9,7 +9,10 @@ import { setAuditLogger } from './audit.ts';
 import { SESSION_COOKIE, userFromToken } from './auth.ts';
 import { config } from './config.ts';
 import { authRoutes } from './routes/auth.ts';
+import { historyRoutes } from './routes/history.ts';
+import { jobRoutes } from './routes/job.ts';
 import { printerRoutes } from './routes/printers.ts';
+import { pushRoutes } from './routes/push.ts';
 import { APP_VERSION } from './version.ts';
 
 export interface BuildOptions {
@@ -122,9 +125,19 @@ export async function buildApp(options: BuildOptions = {}) {
 
   await app.register(authRoutes);
   await app.register(printerRoutes);
+  await app.register(historyRoutes);
+  await app.register(pushRoutes);
+  await app.register(jobRoutes);
 
   if (fs.existsSync(config.webDist)) {
-    await app.register(fastifyStatic, { root: config.webDist, dotfiles: 'deny' });
+    await app.register(fastifyStatic, {
+      root: config.webDist,
+      dotfiles: 'deny',
+      // Browsers must always revalidate the service worker so updates apply.
+      setHeaders: (reply, filePath) => {
+        if (path.basename(filePath) === 'sw.js') reply.header('Cache-Control', 'no-cache');
+      },
+    });
     app.setNotFoundHandler((request, reply) => {
       // API routes and missing files (anything with an extension) get a real 404.
       if (request.url.startsWith('/api/') || /\.[a-z0-9]+(\?|$)/i.test(request.url)) {

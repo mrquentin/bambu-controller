@@ -7,17 +7,28 @@
  * 12345678, model P1S. Provides:
  *   - MQTT over TLS on :8883 (user bblp / access code) with push_status reports
  *   - JPEG camera over TLS on :6000 (frames from ffmpeg's test source if available)
- * FTPS is not simulated.
+ *   - implicit FTPS on :990 (FAKE_FTP_PORT) with an in-memory storage holding a
+ *     sample project for the running job (/cache/Benchy.gcode.3mf), so "Skip
+ *     objects" works; add the printer with certificate verification off.
+ *
+ * The next demo print starts by itself shortly after one finishes or is stopped
+ * (set FAKE_AUTO_PRINT=0 to disable), which keeps the print history moving.
+ * Type a key + Enter to drive print-job events (for notifications):
+ * s start · p pause (runout) · r resume · f finish · x fail · h HMS alert · ? help.
  */
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import readline from 'node:readline';
 import tls from 'node:tls';
 import { Aedes } from 'aedes';
 import selfsigned from 'selfsigned';
+import { startFakeFtps } from './fake-ftps.ts';
+import { buildSample3mf } from './sample-3mf.ts';
 
 const SERIAL = process.env.FAKE_SERIAL ?? '01P00A000000001';
 const ACCESS_CODE = process.env.FAKE_ACCESS_CODE ?? '12345678';
 const HOST = process.env.FAKE_HOST ?? '127.0.0.1';
+const FTP_PORT = Number(process.env.FAKE_FTP_PORT ?? 990);
 
 const pems = await selfsigned.generate([{ name: 'commonName', value: SERIAL }], { keySize: 2048 });
 const tlsOptions = { key: pems.private, cert: pems.cert };
@@ -33,6 +44,7 @@ const state: Record<string, any> = {
   total_layer_num: 150,
   subtask_name: 'Benchy',
   gcode_file: '/data/Metadata/plate_1.gcode',
+  s_obj: [],
   stg_cur: 0,
   nozzle_temper: 219.8,
   nozzle_target_temper: 220,
@@ -86,6 +98,50 @@ const publish = (payload: unknown) =>
     () => {},
   );
 
+/** Start a print: PREPARE, then RUNNING a few seconds later. */
+function startJob(name: string, totalLayers = 150) {
+  Object.assign(state, {
+    gcode_state: 'PREPARE',
+    mc_percent: 0,
+    layer_num: 0,
+    total_layer_num: totalLayers,
+    mc_remaining_time: 100,
+    subtask_name: name,
+    print_error: 0,
+    s_obj: [],
+  });
+  const { gcode_state, mc_percent, layer_num, total_layer_num, mc_remaining_time, subtask_name, print_error, s_obj } = state;
+  publish({
+    print: { command: 'push_status', gcode_state, mc_percent, layer_num, total_layer_num, mc_remaining_time, subtask_name, print_error, s_obj },
+  });
+  setTimeout(() => {
+    if (state.gcode_state !== 'PREPARE') return;
+    state.gcode_state = 'RUNNING';
+    publish({ print: { command: 'push_status', gcode_state: 'RUNNING' } });
+  }, 4000);
+}
+
+const AUTO_PRINT = process.env.FAKE_AUTO_PRINT !== '0';
+const DEMO_JOBS: [string, number][] = [
+  ['Calibration cube', 100],
+  ['Cable clip', 40],
+  ['Benchy', 150],
+];
+let demoIndex = 0;
+let nextDemo: NodeJS.Timeout | null = null;
+
+/** After a print ends, queue the next demo print. */
+function scheduleNextJob() {
+  if (!AUTO_PRINT || nextDemo) return;
+  nextDemo = setTimeout(() => {
+    nextDemo = null;
+    if (state.gcode_state !== 'FINISH' && state.gcode_state !== 'FAILED' && state.gcode_state !== 'IDLE') return;
+    const [name, layers] = DEMO_JOBS[demoIndex++ % DEMO_JOBS.length];
+    console.log(`starting demo print "${name}"`);
+    startJob(name, layers);
+  }, 20_000);
+}
+
 broker.on('publish', (packet, client) => {
   if (!client || packet.topic !== `device/${SERIAL}/request`) return;
   const msg = JSON.parse(packet.payload.toString());
@@ -120,14 +176,22 @@ broker.on('publish', (packet, client) => {
       break;
     case 'stop':
       patch.gcode_state = 'FAILED';
+      scheduleNextJob();
       break;
     case 'print_speed':
       patch.spd_lvl = Number(p.param);
       break;
     case 'project_file':
-      Object.assign(patch, { gcode_state: 'PREPARE', mc_percent: 0, layer_num: 0, subtask_name: p.subtask_name });
-      setTimeout(() => publish({ print: { command: 'push_status', gcode_state: 'RUNNING' } }), 4000);
+      startJob(String(p.subtask_name || 'Untitled'));
       break;
+    case 'skip_objects': {
+      const ids = Array.isArray(p.obj_list) ? p.obj_list.filter((v: unknown) => Number.isInteger(v)) : [];
+      if (!ids.length) {
+        return publish({ print: { command: p.command, sequence_id: p.sequence_id, result: 'fail', reason: 'empty obj_list' } });
+      }
+      patch.s_obj = [...new Set([...state.s_obj, ...ids])];
+      break;
+    }
     case 'gcode_line': {
       const m104 = /M104 S(\d+)/.exec(p.param);
       const m140 = /M140 S(\d+)/.exec(p.param);
@@ -161,7 +225,10 @@ setInterval(() => {
     state.layer_num = Math.min(state.total_layer_num, state.layer_num + 1);
     state.mc_remaining_time = Math.max(0, state.mc_remaining_time - 1);
     Object.assign(patch, { mc_percent: state.mc_percent, layer_num: state.layer_num, mc_remaining_time: state.mc_remaining_time });
-    if (state.mc_percent >= 100) patch.gcode_state = state.gcode_state = 'FINISH';
+    if (state.mc_percent >= 100) {
+      patch.gcode_state = state.gcode_state = 'FINISH';
+      scheduleNextJob();
+    }
   }
   publish({ print: patch });
 }, 1000);
@@ -221,4 +288,39 @@ tls
   })
   .listen(6000, HOST, () => console.log(`Camera (TLS) ${HOST}:6000`));
 
+// ---------------------------------------------------------------- keyboard
+
+const HELP = 'Keys (+ Enter): s start · p pause (runout) · r resume · f finish · x fail · h HMS alert · ? help';
+const update = (patch: Record<string, unknown>) => {
+  Object.assign(state, patch);
+  publish({ print: { command: 'push_status', ...patch } });
+  console.log('->', JSON.stringify(patch));
+};
+const actions: Record<string, () => void> = {
+  s: () => {
+    update({ gcode_state: 'PREPARE', mc_percent: 0, layer_num: 0, mc_remaining_time: 95, print_error: 0, s_obj: [], subtask_name: `Benchy ${new Date().toLocaleTimeString()}` });
+    setTimeout(() => update({ gcode_state: 'RUNNING' }), 3000);
+  },
+  p: () => update({ gcode_state: 'PAUSE', print_error: 0x07008011 }), // AMS filament ran out
+  r: () => update({ gcode_state: 'RUNNING', print_error: 0 }),
+  f: () => update({ gcode_state: 'FINISH', mc_percent: 100, layer_num: state.total_layer_num, mc_remaining_time: 0, print_error: 0 }),
+  x: () => update({ gcode_state: 'FAILED', print_error: 0x0300400c }),
+  h: () => update({ hms: [...state.hms, { attr: 0x03001000, code: 0x00020000 + Math.floor(Math.random() * 0xffff) }] }),
+  '?': () => console.log(HELP),
+};
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const action = actions[line.trim().toLowerCase()];
+  if (action) action();
+  else if (line.trim()) console.log(HELP);
+});
+
+// ---------------------------------------------------------------- storage (FTPS)
+
+const files = new Map<string, Buffer>([['/cache/Benchy.gcode.3mf', buildSample3mf()]]);
+startFakeFtps({ host: HOST, port: FTP_PORT, password: ACCESS_CODE, tlsOptions, files }).then(
+  () => console.log(`FTPS         ${HOST}:${FTP_PORT}`),
+  (err) => console.warn(`FTPS not available on port ${FTP_PORT}: ${err.message} (set FAKE_FTP_PORT)`),
+);
+
 console.log(`Fake printer serial=${SERIAL} access code=${ACCESS_CODE}`);
+console.log(HELP);

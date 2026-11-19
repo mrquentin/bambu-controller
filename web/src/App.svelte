@@ -9,6 +9,7 @@
   import PrinterDetail from './pages/PrinterDetail.svelte';
   import EditPrinter from './pages/EditPrinter.svelte';
   import Settings from './pages/Settings.svelte';
+  import History from './pages/History.svelte';
   import ThemeSwitcher from './components/ThemeSwitcher.svelte';
 
   let auth = $state<{ loading: boolean; setupRequired: boolean; user: { id: number; username: string } | null }>({
@@ -43,7 +44,7 @@
     match('/printer/:id', route.path) ??
       (() => {
         const m = match('/printer/:id/:tab', route.path);
-        return m && ['control', 'files', 'info'].includes(m.tab) ? m : null;
+        return m && ['control', 'files', 'history', 'info'].includes(m.tab) ? m : null;
       })(),
   );
   const edit = $derived(match('/printer/:id/edit', route.path));
@@ -62,6 +63,7 @@
     </a>
     <span class="spacer"></span>
     <ThemeSwitcher />
+    <a class="btn small nav-history" href="#/history">History</a>
     <a class="btn small" href="#/settings">Settings</a>
     <span class="muted small user">{auth.user.username}</span>
     <button class="small ghost" onclick={logout}>Log out</button>
@@ -73,10 +75,12 @@
     <AddPrinter />
   {:else if route.path === '/settings'}
     <Settings user={auth.user} />
+  {:else if route.path === '/history'}
+    <History />
   {:else if edit}
     {#key edit.id}<EditPrinter id={Number(edit.id)} />{/key}
   {:else if detail}
-    {#key detail.id}<PrinterDetail id={Number(detail.id)} tab={(detail.tab ?? 'control') as 'control' | 'files' | 'info'} />{/key}
+    {#key detail.id}<PrinterDetail id={Number(detail.id)} tab={(detail.tab ?? 'control') as 'control' | 'files' | 'history' | 'info'} />{/key}
   {:else}
     <div class="empty">Page not found. <a href="#/">Back to printers</a></div>
   {/if}
@@ -93,5 +97,11 @@
     position: fixed;
     top: 12px;
     right: 12px;
+  }
+  /* No room in the top bar on phones: the printer list links to it instead. */
+  @media (max-width: 480px) {
+    .nav-history {
+      display: none;
+    }
   }
 </style>

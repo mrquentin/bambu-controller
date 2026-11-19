@@ -46,6 +46,11 @@ export const config = {
   sessionIdleMs: num('SESSION_IDLE_HOURS', 72, 1) * 60 * 60 * 1000,
   /** Requests per minute per IP for the whole API (camera/SSE streams count once). */
   rateLimitPerMinute: num('RATE_LIMIT_PER_MINUTE', 600, 1),
+  /**
+   * VAPID "sub" claim: a contact for browser push services (RFC 8292). Apple
+   * rejects mailto:…@localhost, so default to the project's URL.
+   */
+  vapidSubject: str('VAPID_SUBJECT', 'https://github.com/mrquentin/bambu-controller'),
   /** Static frontend build. */
   webDist: path.resolve(import.meta.dirname, '../web/dist'),
 };
