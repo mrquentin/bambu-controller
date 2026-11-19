@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Notifications from '../components/Notifications.svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
 
@@ -125,6 +126,8 @@
       <h1>Settings</h1>
     </div>
   </div>
+
+  <Notifications deviceName={browser} />
 
   <section class="card">
     <header><h2>Change password</h2></header>

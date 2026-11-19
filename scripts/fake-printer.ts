@@ -10,9 +10,13 @@
  * FTPS is not simulated. Since prints can't be started from the UI, the next
  * demo print starts by itself shortly after one finishes or is stopped (set
  * FAKE_AUTO_PRINT=0 to disable), which keeps the print history moving.
+ * Type a key + Enter to drive print-job events (for notifications):
+ * s start · p pause (filament runout) · r resume · f finish · x fail ·
+ * h raise an HMS alert · ? help.
  */
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import readline from 'node:readline';
 import tls from 'node:tls';
 import { Aedes } from 'aedes';
 import selfsigned from 'selfsigned';
@@ -269,4 +273,31 @@ tls
   })
   .listen(6000, HOST, () => console.log(`Camera (TLS) ${HOST}:6000`));
 
+// ---------------------------------------------------------------- keyboard
+
+const HELP = 'Keys (+ Enter): s start · p pause (runout) · r resume · f finish · x fail · h HMS alert · ? help';
+const update = (patch: Record<string, unknown>) => {
+  Object.assign(state, patch);
+  publish({ print: { command: 'push_status', ...patch } });
+  console.log('->', JSON.stringify(patch));
+};
+const actions: Record<string, () => void> = {
+  s: () => {
+    update({ gcode_state: 'PREPARE', mc_percent: 0, layer_num: 0, mc_remaining_time: 95, print_error: 0, subtask_name: `Benchy ${new Date().toLocaleTimeString()}` });
+    setTimeout(() => update({ gcode_state: 'RUNNING' }), 3000);
+  },
+  p: () => update({ gcode_state: 'PAUSE', print_error: 0x07008011 }), // AMS filament ran out
+  r: () => update({ gcode_state: 'RUNNING', print_error: 0 }),
+  f: () => update({ gcode_state: 'FINISH', mc_percent: 100, layer_num: state.total_layer_num, mc_remaining_time: 0, print_error: 0 }),
+  x: () => update({ gcode_state: 'FAILED', print_error: 0x0300400c }),
+  h: () => update({ hms: [...state.hms, { attr: 0x03001000, code: 0x00020000 + Math.floor(Math.random() * 0xffff) }] }),
+  '?': () => console.log(HELP),
+};
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const action = actions[line.trim().toLowerCase()];
+  if (action) action();
+  else if (line.trim()) console.log(HELP);
+});
+
 console.log(`Fake printer serial=${SERIAL} access code=${ACCESS_CODE}`);
+console.log(HELP);

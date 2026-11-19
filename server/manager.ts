@@ -4,6 +4,7 @@ import { cameraKindFor } from './bambu/models.ts';
 import { PrinterConnection } from './bambu/printer.ts';
 import { db, type PrinterRow } from './db.ts';
 import { history } from './history.ts';
+import { notifyPrinterEvent } from './push.ts';
 import { decrypt, encrypt, isEncrypted } from './secrets.ts';
 
 export interface ManagedPrinter {
@@ -47,6 +48,7 @@ class PrinterManager {
     const ftps = new PrinterFtps(row.ip, row.access_code, row);
     this.printers.set(row.id, { connection, camera, ftps });
     history.watch(connection);
+    connection.on('event', (event) => void notifyPrinterEvent(connection.row, event));
     connection.start();
   }
 
@@ -96,6 +98,7 @@ class PrinterManager {
     if (!managed) return false;
     history.unwatch(id, { removed: true });
     managed.connection.stop();
+    managed.connection.removeAllListeners('event');
     managed.camera.close();
     this.printers.delete(id);
     db.prepare('DELETE FROM printers WHERE id = ?').run(id);
