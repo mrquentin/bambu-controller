@@ -34,6 +34,5 @@ jobs:
             revert
             style
           requireScope: false
-          subjectPattern: ^(?![A-Z]).+$
-          subjectPatternError: |
-            The subject "{subject}" must start with a lowercase letter, e.g. "feat: add printer groups".
+          # Only the type prefix matters for versioning; the subject may start
+          # with a capital (Dependabot writes "chore: Bump ...").
