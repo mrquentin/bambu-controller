@@ -110,3 +110,9 @@ export const unloadFilament = () => print({ command: 'unload_filament' });
 /** Load an AMS tray (ams 0..3, tray 0..3) or 254 for the external spool. */
 export const loadFilament = (trayId: number) =>
   print({ command: 'ams_change_filament', target: trayId, curr_temp: 220, tar_temp: 220 });
+
+/**
+ * Skip objects of the running print (`identify_id`s from the job's slice_info.config).
+ * Same shape as Bambu Studio's partskip command; the printer reports skipped ids in `s_obj`.
+ */
+export const skipObjects = (ids: number[]) => print({ command: 'skip_objects', obj_list: ids });

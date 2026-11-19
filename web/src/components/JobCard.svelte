@@ -1,8 +1,18 @@
 <script lang="ts">
-  import type { SendFn } from '../lib/api';
+  import type { PrinterDetail, SendFn } from '../lib/api';
   import { SPEED_LEVELS, formatDuration, formatEta, gcodeStateInfo, stageLabel } from '../lib/bambu';
+  import { skipReplyError } from '../lib/skip-objects';
+  import { toast } from '../lib/toast.svelte';
+  import SkipObjects from './SkipObjects.svelte';
 
-  let { state: s, online, send }: { state: Record<string, any>; online: boolean; send: SendFn } = $props();
+  let {
+    state: s,
+    online,
+    send,
+    printerId,
+    log = [],
+  }: { state: Record<string, any>; online: boolean; send: SendFn; printerId: number; log?: PrinterDetail['log'] } =
+    $props();
 
   const st = $derived(gcodeStateInfo(s.gcode_state));
   const active = $derived(['RUNNING', 'PAUSE', 'PREPARE', 'SLICING'].includes(s.gcode_state));
@@ -14,6 +24,28 @@
   async function stop() {
     if (confirm('Stop the current print? This cannot be undone.')) await send('stop', {}, 'Stop requested');
   }
+
+  // Skip objects: only while printing. Printer rejections arrive in the command log.
+  const canSkip = $derived(s.gcode_state === 'RUNNING' || s.gcode_state === 'PAUSE');
+  let skipOpen = $state(false);
+  let skipSentAt = 0;
+  let skipReported = 0;
+
+  async function skip(ids: number[]) {
+    // Server timestamps: only replies logged after this point count.
+    skipSentAt = log.reduce((max, e) => Math.max(max, e.at), 0) || 1;
+    return send('skipObjects', { ids }, `Skipping ${ids.length} object${ids.length === 1 ? '' : 's'}`);
+  }
+
+  $effect(() => {
+    for (const entry of log) {
+      if (!skipSentAt || entry.at <= skipSentAt || entry.at <= skipReported) continue;
+      const error = skipReplyError(entry);
+      if (error === null) continue;
+      skipReported = entry.at;
+      toast(`The printer refused to skip objects: ${error}`, 'error');
+    }
+  });
 
   const lightLabel = (node: string) =>
     ({ chamber_light: 'Chamber light', chamber_light2: 'Chamber light 2', work_light: 'Work light' })[node] ?? node;
@@ -52,6 +84,9 @@
       <button onclick={() => send('pause', {}, 'Pause requested')} disabled={!online || !active}>❚❚ Pause</button>
     {/if}
     <button class="danger" onclick={stop} disabled={!online || !active}>■ Stop</button>
+    {#if canSkip}
+      <button onclick={() => (skipOpen = true)} disabled={!online} title="Skip parts of this print">⊘ Skip objects</button>
+    {/if}
     <span class="spacer"></span>
     {#each lights as l (l.node)}
       <button
@@ -85,6 +120,10 @@
     </div>
   </div>
 </section>
+
+{#if skipOpen}
+  <SkipObjects {printerId} state={s} {online} onSkip={skip} onClose={() => (skipOpen = false)} />
+{/if}
 
 <style>
   .task {

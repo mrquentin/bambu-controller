@@ -17,6 +17,7 @@ no cloud, no account, just your printers.
 - 📁 Storage browser over FTPS: upload, download, delete, start a print from a `.3mf`
 - 📊 Print history and statistics per printer and overall: every job with its outcome,
   duration (pauses excluded) and layers; success rate and total print time
+- ⊘ Skip objects of a running print: tap parts on the plate image or pick them from a list
 - ⌨ G-code console and command log, firmware info, raw status JSON
 - 🔔 Push notifications (browser / installed app) when a print finishes, fails, pauses or raises an HMS alert
 

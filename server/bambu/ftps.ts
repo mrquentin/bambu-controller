@@ -12,6 +12,8 @@ export class PrinterFtps {
   private ip: string;
   private accessCode: string;
   private trust: TlsTarget;
+  /** Always 990 on printers; overridable for tests against a local fake. */
+  port = 990;
 
   constructor(ip: string, accessCode: string, trust: TlsTarget) {
     this.ip = ip;
@@ -30,7 +32,7 @@ export class PrinterFtps {
     try {
       await client.access({
         host: this.ip,
-        port: 990,
+        port: this.port,
         user: 'bblp',
         password: this.accessCode,
         secure: 'implicit',
@@ -86,6 +88,51 @@ export class PrinterFtps {
 
   remove(path: string) {
     return this.run((client) => client.remove(path));
+  }
+
+  /** First path that exists (one session, SIZE per candidate), with its size. */
+  firstExisting(paths: string[]) {
+    return this.run(async (client) => {
+      for (const path of paths) {
+        try {
+          return { path, size: await client.size(path) };
+        } catch (err) {
+          // 550 = no such file; anything else (connection lost…) is a real error.
+          if ((err as { code?: number }).code !== 550) throw err;
+        }
+      }
+      return null;
+    });
+  }
+
+  /** Download `length` bytes starting at `start` (REST), then hang up the transfer. */
+  readRange(path: string, start: number, length: number) {
+    return this.run(async (client) => {
+      const chunks: Buffer[] = [];
+      let received = 0;
+      let done = length <= 0;
+      if (done) return Buffer.alloc(0);
+      const sink = new Writable({
+        write(chunk: Buffer, _enc, callback) {
+          if (!done) {
+            const part = chunk.subarray(0, length - received);
+            chunks.push(part);
+            received += part.length;
+            if (received >= length) {
+              done = true;
+              client.close(); // ends the transfer early; the session is discarded anyway
+            }
+          }
+          callback();
+        },
+      });
+      try {
+        await client.downloadTo(sink, path, start);
+      } catch (err) {
+        if (!done) throw err;
+      }
+      return Buffer.concat(chunks, received);
+    });
   }
 
   private activeStream: Client | null = null;

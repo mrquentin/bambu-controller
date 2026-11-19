@@ -105,7 +105,7 @@
           <Temperatures state={s} {online} {send} chamberControl={data.capabilities.chamberControl} />
           <Fans state={s} {online} {send} />
         </div>
-        <div class="area-job"><JobCard state={s} {online} {send} /></div>
+        <div class="area-job"><JobCard state={s} {online} {send} printerId={id} log={data.log} /></div>
         <div class="area-motion"><Motion state={s} {online} {send} /></div>
         <div class="area-wide col"><Hms state={s} /><Ams state={s} {online} {send} /></div>
       </div>

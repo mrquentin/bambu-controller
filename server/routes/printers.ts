@@ -4,6 +4,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { requireAuth } from '../auth.ts';
 import * as cmd from '../bambu/commands.ts';
 import { safeRemotePath } from '../bambu/ftps.ts';
+import { buildSkipCommand, describeSkipped, jobObjects } from '../bambu/job-objects.ts';
 import { MODELS, cameraKindFor, printUrlFor, supportsChamberControl } from '../bambu/models.ts';
 import { testConnection } from '../bambu/printer.ts';
 import { audit } from '../audit.ts';
@@ -72,7 +73,7 @@ function parsePrinterInput(body: any, existing?: PrinterRow): PrinterInput | str
   return { name, model, serial, ip, access_code: accessCode, camera, tls_verify: tlsVerify };
 }
 
-function withPrinter(
+export function withPrinter(
   handler: (printer: ManagedPrinter, request: any, reply: FastifyReply) => Promise<unknown>,
 ) {
   return async (request: any, reply: FastifyReply) => {
@@ -136,9 +137,19 @@ function buildCommand(printer: ManagedPrinter, body: any): cmd.Command {
       return cmd.unloadFilament();
     case 'loadFilament':
       return cmd.loadFilament(num(body.tray, 0, 254));
+    case 'skipObjects': {
+      const { state, row } = printer.connection;
+      return buildSkipCommand(body.ids, state, jobObjects.peek(row.id, state)?.objects ?? null);
+    }
     default:
       throw new RangeError('Unknown action');
   }
+}
+
+function skippedObjectsDetail(p: ManagedPrinter, payload: cmd.Command) {
+  const ids = (payload.print as { obj_list: number[] }).obj_list;
+  const { state, row } = p.connection;
+  return describeSkipped(ids, jobObjects.peek(row.id, state)?.objects ?? null);
 }
 
 export async function printerRoutes(app: FastifyInstance) {
@@ -288,6 +299,7 @@ export async function printerRoutes(app: FastifyInstance) {
           printer: p.connection.row.id,
           command: body.action,
           ...(body.action === 'gcode' ? { gcode: String(body.gcode).slice(0, 500) } : {}),
+          ...(body.action === 'skipObjects' ? { objects: skippedObjectsDetail(p, payload) } : {}),
         },
       });
       return { ok: true };

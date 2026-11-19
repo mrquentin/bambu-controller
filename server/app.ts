@@ -10,6 +10,7 @@ import { SESSION_COOKIE, userFromToken } from './auth.ts';
 import { config } from './config.ts';
 import { authRoutes } from './routes/auth.ts';
 import { historyRoutes } from './routes/history.ts';
+import { jobRoutes } from './routes/job.ts';
 import { printerRoutes } from './routes/printers.ts';
 import { pushRoutes } from './routes/push.ts';
 import { APP_VERSION } from './version.ts';
@@ -126,6 +127,7 @@ export async function buildApp(options: BuildOptions = {}) {
   await app.register(printerRoutes);
   await app.register(historyRoutes);
   await app.register(pushRoutes);
+  await app.register(jobRoutes);
 
   if (fs.existsSync(config.webDist)) {
     await app.register(fastifyStatic, {
