@@ -58,7 +58,18 @@ The compose file uses host networking so SSDP discovery can see the printers, an
 container hardened (read-only root filesystem, no capabilities, non-root user). Data (SQLite DB)
 lives in `./data`; keep `.env` (the encryption key) outside of your backups of `./data`.
 
-### Development
+### Unraid
+
+A Docker template is provided in [`unraid/bambu-controller.xml`](unraid/bambu-controller.xml).
+In Unraid: **Docker → Add Container → Template:** paste the template URL
+`https://raw.githubusercontent.com/mrquentin/bambu-controller/main/unraid/bambu-controller.xml`
+(or add `https://github.com/mrquentin/bambu-controller` under *Docker → Template repositories*).
+
+- Set **APP_SECRET** (e.g. `openssl rand -base64 32`) and keep a copy.
+- The container runs hardened as `nobody:users` (99:100) with host networking (for discovery).
+  If the appdata folder was created with another owner, fix it once:
+  `chown -R 99:100 /mnt/user/appdata/bambu-controller` (the container log says so if needed).
+
 
 ```bash
 npm run dev            # API on :8080 (auto-restart) + Vite on :5173

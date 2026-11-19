@@ -5,7 +5,31 @@ import { config } from './config.ts';
 
 // Owner-only permissions for the data directory and files (no-op on Windows).
 fs.mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
+assertWritable(config.dataDir);
 const dbPath = path.join(config.dataDir, 'bambu-controller.db');
+
+/**
+ * Fail fast with an actionable message when the data directory isn't writable
+ * (typically a host folder created by Docker as root while the container runs
+ * as an unprivileged user), instead of SQLite's "unable to open database file".
+ */
+function assertWritable(dir: string) {
+  try {
+    fs.accessSync(dir, fs.constants.W_OK);
+  } catch {
+    const uid = process.getuid?.() ?? '?';
+    const gid = process.getgid?.() ?? '?';
+    console.error(
+      [
+        `Data directory "${dir}" is not writable by this process (uid ${uid}, gid ${gid}).`,
+        'Give that user ownership of the host folder mapped to it, for example:',
+        `  chown -R ${uid}:${gid} /path/to/host/folder`,
+        'On Unraid (container runs as nobody:users): chown -R 99:100 /mnt/user/appdata/bambu-controller',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+}
 
 export const db = new DatabaseSync(dbPath);
 try {
