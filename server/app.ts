@@ -9,6 +9,7 @@ import { setAuditLogger } from './audit.ts';
 import { SESSION_COOKIE, userFromToken } from './auth.ts';
 import { config } from './config.ts';
 import { authRoutes } from './routes/auth.ts';
+import { historyRoutes } from './routes/history.ts';
 import { printerRoutes } from './routes/printers.ts';
 import { APP_VERSION } from './version.ts';
 
@@ -122,6 +123,7 @@ export async function buildApp(options: BuildOptions = {}) {
 
   await app.register(authRoutes);
   await app.register(printerRoutes);
+  await app.register(historyRoutes);
 
   if (fs.existsSync(config.webDist)) {
     await app.register(fastifyStatic, { root: config.webDist, dotfiles: 'deny' });

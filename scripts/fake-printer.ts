@@ -7,7 +7,9 @@
  * 12345678, model P1S. Provides:
  *   - MQTT over TLS on :8883 (user bblp / access code) with push_status reports
  *   - JPEG camera over TLS on :6000 (frames from ffmpeg's test source if available)
- * FTPS is not simulated.
+ * FTPS is not simulated. Since prints can't be started from the UI, the next
+ * demo print starts by itself shortly after one finishes or is stopped (set
+ * FAKE_AUTO_PRINT=0 to disable), which keeps the print history moving.
  */
 import { spawn } from 'node:child_process';
 import net from 'node:net';
@@ -86,6 +88,49 @@ const publish = (payload: unknown) =>
     () => {},
   );
 
+/** Start a print: PREPARE, then RUNNING a few seconds later. */
+function startJob(name: string, totalLayers = 150) {
+  Object.assign(state, {
+    gcode_state: 'PREPARE',
+    mc_percent: 0,
+    layer_num: 0,
+    total_layer_num: totalLayers,
+    mc_remaining_time: 100,
+    subtask_name: name,
+    print_error: 0,
+  });
+  const { gcode_state, mc_percent, layer_num, total_layer_num, mc_remaining_time, subtask_name, print_error } = state;
+  publish({
+    print: { command: 'push_status', gcode_state, mc_percent, layer_num, total_layer_num, mc_remaining_time, subtask_name, print_error },
+  });
+  setTimeout(() => {
+    if (state.gcode_state !== 'PREPARE') return;
+    state.gcode_state = 'RUNNING';
+    publish({ print: { command: 'push_status', gcode_state: 'RUNNING' } });
+  }, 4000);
+}
+
+const AUTO_PRINT = process.env.FAKE_AUTO_PRINT !== '0';
+const DEMO_JOBS: [string, number][] = [
+  ['Calibration cube', 100],
+  ['Cable clip', 40],
+  ['Benchy', 150],
+];
+let demoIndex = 0;
+let nextDemo: NodeJS.Timeout | null = null;
+
+/** After a print ends, queue the next demo print. */
+function scheduleNextJob() {
+  if (!AUTO_PRINT || nextDemo) return;
+  nextDemo = setTimeout(() => {
+    nextDemo = null;
+    if (state.gcode_state !== 'FINISH' && state.gcode_state !== 'FAILED' && state.gcode_state !== 'IDLE') return;
+    const [name, layers] = DEMO_JOBS[demoIndex++ % DEMO_JOBS.length];
+    console.log(`starting demo print "${name}"`);
+    startJob(name, layers);
+  }, 20_000);
+}
+
 broker.on('publish', (packet, client) => {
   if (!client || packet.topic !== `device/${SERIAL}/request`) return;
   const msg = JSON.parse(packet.payload.toString());
@@ -120,13 +165,13 @@ broker.on('publish', (packet, client) => {
       break;
     case 'stop':
       patch.gcode_state = 'FAILED';
+      scheduleNextJob();
       break;
     case 'print_speed':
       patch.spd_lvl = Number(p.param);
       break;
     case 'project_file':
-      Object.assign(patch, { gcode_state: 'PREPARE', mc_percent: 0, layer_num: 0, subtask_name: p.subtask_name });
-      setTimeout(() => publish({ print: { command: 'push_status', gcode_state: 'RUNNING' } }), 4000);
+      startJob(String(p.subtask_name || 'Untitled'));
       break;
     case 'gcode_line': {
       const m104 = /M104 S(\d+)/.exec(p.param);
@@ -161,7 +206,10 @@ setInterval(() => {
     state.layer_num = Math.min(state.total_layer_num, state.layer_num + 1);
     state.mc_remaining_time = Math.max(0, state.mc_remaining_time - 1);
     Object.assign(patch, { mc_percent: state.mc_percent, layer_num: state.layer_num, mc_remaining_time: state.mc_remaining_time });
-    if (state.mc_percent >= 100) patch.gcode_state = state.gcode_state = 'FINISH';
+    if (state.mc_percent >= 100) {
+      patch.gcode_state = state.gcode_state = 'FINISH';
+      scheduleNextJob();
+    }
   }
   publish({ print: patch });
 }, 1000);

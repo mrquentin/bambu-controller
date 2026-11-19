@@ -89,6 +89,35 @@ addColumn('sessions', 'last_seen_at', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('sessions', 'ip', 'TEXT');
 addColumn('sessions', 'user_agent', 'TEXT');
 
+/**
+ * Print history (see history.ts). Jobs outlive their printer: removing a
+ * printer only detaches its jobs (printer_id NULL) so statistics and the
+ * global history stay complete; printer_name keeps them readable.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS print_jobs (
+    id                INTEGER PRIMARY KEY,
+    printer_id        INTEGER REFERENCES printers(id) ON DELETE SET NULL,
+    printer_name      TEXT    NOT NULL,
+    task              TEXT,
+    gcode_file        TEXT,
+    status            TEXT    NOT NULL,
+    started_at        INTEGER NOT NULL,
+    ended_at          INTEGER,
+    updated_at        INTEGER NOT NULL,
+    observed_midway   INTEGER NOT NULL DEFAULT 0,
+    total_layers      INTEGER,
+    last_layer        INTEGER,
+    last_percent      INTEGER,
+    remaining_minutes INTEGER,
+    print_error       INTEGER,
+    paused_ms         INTEGER NOT NULL DEFAULT 0,
+    paused_at         INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS print_jobs_printer ON print_jobs(printer_id, started_at);
+  CREATE INDEX IF NOT EXISTS print_jobs_started ON print_jobs(started_at);
+`);
+
 export type CameraSetting = 'auto' | 'jpeg' | 'rtsps' | 'none';
 
 /** Printer as used in memory: `access_code` is always the decrypted value. */

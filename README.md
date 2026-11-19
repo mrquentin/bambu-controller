@@ -15,6 +15,8 @@ no cloud, no account, just your printers.
 - 🧵 AMS units and trays (color, type, remaining, humidity), load / unload
 - ⚠ HMS health alerts with lookup links
 - 📁 Storage browser over FTPS: upload, download, delete, start a print from a `.3mf`
+- 📊 Print history and statistics per printer and overall: every job with its outcome,
+  duration (pauses excluded) and layers; success rate and total print time
 - ⌨ G-code console and command log, firmware info, raw status JSON
 
 The protocol details were recovered by reverse engineering the LanBu Android app; see
@@ -73,7 +75,8 @@ In Unraid: **Docker → Add Container → Template:** paste the template URL
 
 ```bash
 npm run dev            # API on :8080 (auto-restart) + Vite on :5173
-npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678)
+npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678);
+                       # queues demo prints by itself (FAKE_AUTO_PRINT=0 to disable)
 npm test               # unit + API tests
 npm run check          # type-check server and frontend
 ```
