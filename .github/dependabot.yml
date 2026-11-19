@@ -1,4 +1,10 @@
 version: 2
+
+# PR titles must be Conventional Commits (they become the squash commit on main
+# and drive semantic-release):
+#   deps: ...   shipped dependencies / base image -> patch release
+#   chore: ...  dev tooling                        -> no release
+#   ci: ...     GitHub Actions                     -> no release
 updates:
   - package-ecosystem: npm
     directory: /
@@ -7,23 +13,52 @@ updates:
     # Let new releases age a week before upgrading (supply-chain safety).
     cooldown:
       default-days: 7
+    commit-message:
+      prefix: deps
+      prefix-development: chore
     groups:
-      dev-dependencies:
+      # Routine minor/patch bumps arrive as one PR each for prod and dev.
+      production:
+        dependency-type: production
+        update-types: [minor, patch]
+      development:
         dependency-type: development
+        update-types: [minor, patch]
+        exclude-patterns: ['vite', '@sveltejs/vite-plugin-svelte']
+      # vite and its Svelte plugin must move together (peer dependency).
+      vite:
+        patterns: ['vite', '@sveltejs/vite-plugin-svelte']
+    # Majors not yet compatible with the toolchain/runtime:
+    ignore:
+      # svelte-check supports TypeScript ^5 || ^6 only; revisit when it supports 7.
+      - dependency-name: typescript
+        versions: ['>=7']
+      # Types must match the Node.js runtime (24); bump together with the runtime.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     open-pull-requests-limit: 10
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
-    # Let new releases age a week before upgrading (supply-chain safety).
     cooldown:
       default-days: 7
+    commit-message:
+      prefix: deps
+    # The runtime is pinned to Node 24 LTS; only take patch/minor base-image updates.
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    # Let new releases age a week before upgrading (supply-chain safety).
     cooldown:
       default-days: 7
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns: ['*']
