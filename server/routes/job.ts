@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { requireAuth } from '../auth.ts';
 import { JobObjectsError, jobObjects, skippedIds, type LoadedJob } from '../bambu/job-objects.ts';
 import type { ManagedPrinter } from '../manager.ts';
-import { withPrinter } from './printers.ts';
+import { withPrinter } from './shared.ts';
 
 /** Load (or reuse) the current job's object list; maps failures to HTTP errors. */
 async function currentJob(p: ManagedPrinter, reply: FastifyReply, refresh = false): Promise<LoadedJob | null> {

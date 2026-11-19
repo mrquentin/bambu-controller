@@ -26,7 +26,7 @@ infrastructure, monitoring, incident response), verified against a real Bambu La
 | V6 | Medium | Rate limiting only on login; no per-account lockout | `server/routes/auth.ts` |
 | V7 | Medium | Weak password policy (8 chars, no complexity) | `server/routes/auth.ts` |
 | V8 | Medium | Printer host could be any address → SSRF / internal port probing via the app | `server/routes/printers.ts` |
-| V9 | Medium | Upload accepted any file type/name; partial uploads left on the printer | `server/routes/printers.ts` |
+| V9 | Medium | Upload accepted any file type/name; partial uploads left on the printer | `server/routes/files.ts` |
 | V10 | Low | First-run setup race (two concurrent requests could create two admins) | `server/routes/auth.ts` |
 | V11 | Low | 5xx errors returned internal error messages | `server/index.ts` |
 | V12 | Low | Sessions had no idle timeout and could not be listed/revoked | `server/auth.ts` |

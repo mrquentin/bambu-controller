@@ -9,8 +9,11 @@ import { setAuditLogger } from './audit.ts';
 import { SESSION_COOKIE, userFromToken } from './auth.ts';
 import { config } from './config.ts';
 import { authRoutes } from './routes/auth.ts';
+import { controlRoutes } from './routes/control.ts';
+import { fileRoutes } from './routes/files.ts';
 import { historyRoutes } from './routes/history.ts';
 import { jobRoutes } from './routes/job.ts';
+import { mediaRoutes } from './routes/media.ts';
 import { printerRoutes } from './routes/printers.ts';
 import { pushRoutes } from './routes/push.ts';
 import { APP_VERSION } from './version.ts';
@@ -125,6 +128,9 @@ export async function buildApp(options: BuildOptions = {}) {
 
   await app.register(authRoutes);
   await app.register(printerRoutes);
+  await app.register(controlRoutes);
+  await app.register(fileRoutes);
+  await app.register(mediaRoutes);
   await app.register(historyRoutes);
   await app.register(pushRoutes);
   await app.register(jobRoutes);
