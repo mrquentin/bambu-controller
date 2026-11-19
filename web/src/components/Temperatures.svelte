@@ -91,4 +91,7 @@
   input {
     width: 80px;
   }
+  .heater form {
+    flex-wrap: nowrap;
+  }
 </style>

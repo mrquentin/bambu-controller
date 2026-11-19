@@ -78,7 +78,7 @@
 <style>
   .units {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
     gap: 16px;
   }
   .unit {
@@ -122,8 +122,17 @@
   }
   .brand {
     font-size: 0.72rem;
+    overflow-wrap: anywhere;
     text-align: center;
     line-height: 1.2;
     min-height: 1.2em;
+  }
+  @media (max-width: 420px) {
+    .trays {
+      gap: 6px;
+    }
+    .tray {
+      padding: 8px 4px;
+    }
   }
 </style>

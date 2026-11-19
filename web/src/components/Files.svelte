@@ -232,4 +232,27 @@
     opacity: 0.45;
     pointer-events: none;
   }
+  @media (max-width: 700px) {
+    .table-wrap {
+      max-height: none;
+      min-height: 0;
+    }
+    tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      padding: 6px 0;
+    }
+    td {
+      border-bottom: none;
+      padding: 2px 4px;
+    }
+    td.name {
+      grid-column: 1 / -1;
+    }
+    .actions > * {
+      margin-left: 6px;
+    }
+  }
 </style>

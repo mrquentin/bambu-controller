@@ -82,6 +82,14 @@
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+img,
+video {
+  max-width: 100%;
 }
 
 a {
@@ -159,6 +167,7 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
 }
@@ -502,6 +511,7 @@ th {
   padding: 20px;
   width: min(480px, 100%);
   max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   overflow: auto;
 }
 
@@ -527,4 +537,77 @@ th {
 .crumbs a:hover {
   color: var(--text);
   text-decoration: none;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 700px) {
+  .container {
+    padding: 12px;
+  }
+
+  .topbar {
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .topbar .user {
+    display: none;
+  }
+
+  .card {
+    padding: 14px;
+  }
+
+  .grid {
+    gap: 12px;
+  }
+
+  h1 {
+    font-size: 1.25rem;
+  }
+
+  /* Comfortable touch targets. */
+  button,
+  .btn {
+    min-height: 38px;
+  }
+
+  button.small,
+  .btn.small {
+    min-height: 34px;
+  }
+
+  /* iOS zooms the page when focusing inputs smaller than 16px. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Keep wide tables inside their card; let cells wrap. */
+  td {
+    overflow-wrap: anywhere;
+  }
+
+  .toasts {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    max-width: none;
+  }
+
+  .modal-backdrop {
+    padding: 10px;
+  }
+
+  .modal {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 420px) {
+  .topbar .brand-name {
+    display: none;
+  }
 }

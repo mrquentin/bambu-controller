@@ -87,6 +87,7 @@
   .viewer {
     width: min(1200px, 100%);
     max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
     display: flex;
     flex-direction: column;
     background: var(--card);
@@ -120,6 +121,7 @@
     display: block;
     max-width: 100%;
     max-height: calc(100vh - 140px);
+    max-height: calc(100dvh - 140px);
   }
   .note {
     margin: 0;

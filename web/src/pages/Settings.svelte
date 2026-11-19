@@ -142,7 +142,7 @@
       <h2>Active sessions</h2>
       <button class="small" onclick={revokeOthers} disabled={sessions.length < 2}>Sign out other sessions</button>
     </header>
-    <table>
+    <table class="stacked">
       <tbody>
         {#each sessions as s (s.id)}
           <tr>
@@ -163,7 +163,7 @@
 
   <section class="card stack">
     <header style="margin:0"><h2>Users</h2></header>
-    <table>
+    <table class="stacked">
       <tbody>
         {#each users as u (u.id)}
           <tr>
@@ -240,5 +240,26 @@
   }
   .log :global(div) {
     word-break: break-word;
+  }
+  form.row > input {
+    flex: 1 1 160px;
+  }
+  @media (max-width: 700px) {
+    .stacked tr {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      border-bottom: 1px solid var(--border);
+      padding: 6px 0;
+    }
+    .stacked td {
+      border-bottom: none;
+      padding: 2px 4px;
+    }
+    .stacked td:first-child {
+      grid-column: 1 / -1;
+    }
+    .log .nowrap {
+      white-space: normal;
+    }
   }
 </style>
