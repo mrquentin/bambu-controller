@@ -1,0 +1,9 @@
+# Default owner for everything in the repository.
+*                    @mrquentin
+
+# Security-sensitive areas: changes here deserve extra attention.
+/.github/            @mrquentin
+/server/auth.ts      @mrquentin
+/server/secrets.ts   @mrquentin
+/server/bambu/tls.ts @mrquentin
+/Dockerfile          @mrquentin

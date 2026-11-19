@@ -100,7 +100,7 @@ function isPlainObject(v: unknown): v is Json {
  * into the accumulated state. Arrays are replaced wholesale, except the AMS
  * unit list which is merged per unit id (partial AMS updates are common).
  */
-function mergeState(target: Json, patch: Json) {
+export function mergeState(target: Json, patch: Json) {
   for (const [key, value] of Object.entries(patch)) {
     if (isPlainObject(value) && isPlainObject(target[key])) {
       mergeState(target[key], value);

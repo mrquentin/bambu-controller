@@ -41,9 +41,17 @@ On first visit you create the admin account.
 
 ### Docker
 
+Images are published to the GitHub Container Registry for `linux/amd64` and `linux/arm64`:
+
 ```bash
 echo "APP_SECRET=$(openssl rand -base64 32)" > .env   # encrypts printer access codes
-docker compose up -d --build
+docker compose up -d                                  # pulls ghcr.io/mrquentin/bambu-controller
+```
+
+Verify an image was built by this repository's release pipeline:
+
+```bash
+gh attestation verify oci://ghcr.io/mrquentin/bambu-controller:latest --repo mrquentin/bambu-controller
 ```
 
 The compose file uses host networking so SSDP discovery can see the printers, and runs the
@@ -55,8 +63,28 @@ lives in `./data`; keep `.env` (the encryption key) outside of your backups of `
 ```bash
 npm run dev            # API on :8080 (auto-restart) + Vite on :5173
 npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678)
+npm test               # unit + API tests
 npm run check          # type-check server and frontend
 ```
+
+### Contributing & releases
+
+`main` is protected: every change goes through a pull request that must pass CI (tests, type
+checks, build, dependency review, secret scan, image scan, CodeQL). PRs are squash-merged and
+the **PR title must follow [Conventional Commits](https://www.conventionalcommits.org)** — it
+becomes the commit on `main` and decides the next version:
+
+| PR title | Release |
+|---|---|
+| `fix: …`, `perf: …`, `refactor: …`, `deps: …` | patch (`0.2.0 → 0.2.1`) |
+| `feat: …` | minor (`0.2.1 → 0.3.0`) |
+| `feat!: …` or `BREAKING CHANGE:` in the body | major |
+| `docs:`, `test:`, `ci:`, `chore:`, `style:` | no release |
+
+On merge, the release pipeline re-runs CI, lets semantic-release tag `vX.Y.Z` and publish the
+GitHub Release, then builds, scans, pushes and attests the image. Repository policies
+(rulesets, merge settings, Actions restrictions) are kept in
+[`scripts/apply-repo-policies.sh`](scripts/apply-repo-policies.sh).
 
 ### Configuration (environment variables)
 

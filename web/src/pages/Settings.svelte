@@ -31,6 +31,7 @@
   let auditLog = $state<AuditRow[]>([]);
   let auditFilter = $state<'all' | 'problems'>('all');
   let pw = $state({ current: '', next: '', confirm: '' });
+  let version = $state<string | null>(null);
   let newUser = $state({ username: '', password: '' });
 
   const loadUsers = async () => (users = await api('/api/users').catch(() => []));
@@ -38,6 +39,7 @@
   const loadAudit = async () => (auditLog = await api('/api/audit').catch(() => []));
 
   onMount(() => {
+    api<{ version: string }>('/api/health').then((h) => (version = h.version)).catch(() => {});
     loadUsers();
     loadSessions();
     loadAudit();
@@ -213,6 +215,11 @@
     </div>
     <p class="muted small" style="margin:0">Last 300 events; kept for 90 days (AUDIT_RETENTION_DAYS).</p>
   </section>
+
+  <footer class="muted small about">
+    Bambu Controller {version ? `v${version}` : ''} ·
+    <a href="https://github.com/mrquentin/bambu-controller" target="_blank" rel="noreferrer">source</a>
+  </footer>
 </div>
 
 <style>
@@ -222,6 +229,10 @@
   .log {
     max-height: 420px;
     overflow: auto;
+  }
+  .about {
+    text-align: center;
+    padding: 8px 0 24px;
   }
   .nowrap {
     white-space: nowrap;

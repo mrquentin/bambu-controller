@@ -1,0 +1,173 @@
+name: Release
+
+# On every push to main (i.e. every merged PR):
+#   1. run the full CI suite (tests, type checks, build, scans)
+#   2. semantic-release reads the Conventional Commits since the last tag and,
+#      if they warrant it, creates the next version: tag vX.Y.Z + GitHub Release
+#      (fix -> patch, feat -> minor, "!" / BREAKING CHANGE -> major)
+#   3. build the multi-arch image, scan it, publish it to the repository's
+#      GitHub Container Registry and attach a signed build-provenance attestation
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never run two releases at once, and never cancel one halfway.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    name: version
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the tag and GitHub Release
+    outputs:
+      version: ${{ steps.semrel.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # semantic-release needs the full history and tags
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - name: semantic-release
+        id: semrel
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --no-install semantic-release
+
+  publish:
+    name: publish
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write # push to ghcr.io/<owner>/<repo>
+      id-token: write # keyless signing of the attestation
+      attestations: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    outputs:
+      image: ${{ steps.name.outputs.image }}
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ needs.version.outputs.version }}
+          persist-credentials: false
+
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        id: meta
+        with:
+          images: ${{ steps.name.outputs.image }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ env.VERSION }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ env.VERSION }}
+            type=semver,pattern={{major}},value=v${{ env.VERSION }},enable=${{ !startsWith(env.VERSION, '0.') }}
+            type=raw,value=latest
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=Bambu Controller
+            org.opencontainers.image.description=Self-hosted web app to monitor and control Bambu Lab printers in LAN mode
+            org.opencontainers.image.version=${{ env.VERSION }}
+
+      # Scan before anything is published.
+      - name: Build for scanning (amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: bambu-controller:scan
+          build-args: APP_VERSION=${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy (fail on fixable high/critical)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.2 \
+            image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed bambu-controller:scan
+
+      - name: Build and push (amd64 + arm64)
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          build-args: APP_VERSION=${{ env.VERSION }}
+          provenance: mode=max
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.name.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  release-notes:
+    name: release-notes
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write # edit the GitHub Release body
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      IMAGE: ${{ needs.publish.outputs.image }}
+      DIGEST: ${{ needs.publish.outputs.digest }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Add image details to the release
+        run: |
+          notes=$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json body --jq .body)
+          cat > notes.md <<EOF
+          $notes
+
+          ### Container image
+
+          \`\`\`bash
+          docker pull $IMAGE:$VERSION
+          \`\`\`
+
+          Digest: \`$DIGEST\` (linux/amd64, linux/arm64)
+
+          Verify provenance: \`gh attestation verify oci://$IMAGE:$VERSION --repo $GITHUB_REPOSITORY\`
+          EOF
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
