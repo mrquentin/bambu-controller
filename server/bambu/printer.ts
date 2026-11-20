@@ -55,6 +55,18 @@ export function nextDelay(
 const AUTH_ERROR = /Not authorized|Bad username or password/i;
 
 /**
+ * Close an mqtt.js client without leaking its timers. Only the listeners this
+ * app added are removed: `removeAllListeners()` would also drop mqtt.js's own
+ * 'close' handler, which clears its connect timer (a failed TLS handshake then
+ * kept the process busy for `connectTimeout`).
+ */
+function discardClient(client: MqttClient, own: readonly [string, (...args: any[]) => void][]) {
+  for (const [event, listener] of own) client.removeListener(event as 'connect', listener);
+  client.on('error', () => {});
+  client.end(true);
+}
+
+/**
  * One-shot credential check used before saving a printer: connect over MQTT,
  * subscribe to the report topic and wait for the first message.
  */
@@ -79,11 +91,14 @@ export function testConnection(
       ...printerTlsOptions({ serial, tls_verify: tlsVerify }),
     });
     let connected = false;
+    const own: [string, (...args: any[]) => void][] = [];
+    const on = (event: string, listener: (...args: any[]) => void) => {
+      own.push([event, listener]);
+      client.on(event as 'connect', listener);
+    };
     const finish = (result: { ok: true } | { ok: false; error: string }) => {
       clearTimeout(timer);
-      client.removeAllListeners();
-      client.on('error', () => {});
-      client.end(true);
+      discardClient(client, own);
       resolve(result);
     };
     const timer = setTimeout(
@@ -96,7 +111,7 @@ export function testConnection(
         }),
       timeoutMs,
     );
-    client.on('connect', () => {
+    on('connect', () => {
       connected = true;
       client.subscribe(`device/${serial}/report`, (err) => {
         if (err) return finish({ ok: false, error: `Subscribe failed: ${err.message}` });
@@ -106,8 +121,8 @@ export function testConnection(
         );
       });
     });
-    client.on('message', () => finish({ ok: true }));
-    client.on('error', (err) => {
+    on('message', () => finish({ ok: true }));
+    on('error', (err) => {
       const msg = err.message || String(err);
       finish({
         ok: false,
@@ -189,6 +204,8 @@ export class PrinterConnection extends EventEmitter {
   nextRetryAt = 0;
   log: CommandLogEntry[] = [];
   private client: MqttClient | null = null;
+  /** Listeners this class added to `client` (removed again on teardown). */
+  private clientListeners: [string, (...args: any[]) => void][] = [];
   /** Last job snapshot, for lifecycle event detection (null = nothing seen yet). */
   private lastJob: JobSnapshot | null = null;
   private readonly timing: ConnectionTiming;
@@ -266,8 +283,13 @@ export class PrinterConnection extends EventEmitter {
       ...printerTlsOptions(this.row),
     });
     this.client = client;
+    const own: [string, (...args: any[]) => void][] = (this.clientListeners = []);
+    const on = (event: string, listener: (...args: any[]) => void) => {
+      own.push([event, listener]);
+      client.on(event as 'connect', listener);
+    };
 
-    client.on('connect', () => {
+    on('connect', () => {
       this.error = null;
       this.authFailed = false;
       this.connectedAt = this.lastPushallAt = Date.now();
@@ -286,9 +308,9 @@ export class PrinterConnection extends EventEmitter {
       });
     });
 
-    client.on('message', (_topic, payload) => this.handleMessage(payload));
+    on('message', (_topic, payload) => this.handleMessage(payload));
 
-    client.on('error', (err) => {
+    on('error', (err) => {
       const msg = err.message || String(err);
       this.authFailed = AUTH_ERROR.test(msg);
       this.error = describeTlsError(err) ?? (this.authFailed
@@ -299,7 +321,7 @@ export class PrinterConnection extends EventEmitter {
       if (!client.connected) this.retryLater();
     });
 
-    client.on('close', () => {
+    on('close', () => {
       if (this.status !== 'error') this.setStatus('offline');
       this.retryLater();
     });
@@ -339,9 +361,8 @@ export class PrinterConnection extends EventEmitter {
     const client = this.client;
     if (!client) return;
     this.client = null;
-    client.removeAllListeners();
-    client.on('error', () => {});
-    client.end(true);
+    discardClient(client, this.clientListeners);
+    this.clientListeners = [];
   }
 
   private startWatchdog() {
