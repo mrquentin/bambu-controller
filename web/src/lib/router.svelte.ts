@@ -1,3 +1,5 @@
+import { PRINTER_TABS, type PrinterTab } from '../../../shared/pages.ts';
+
 function current() {
   return location.hash.replace(/^#/, '') || '/';
 }
@@ -23,4 +25,11 @@ export function match(pattern: string, path: string): Record<string, string> | n
     else if (p[i] !== s[i]) return null;
   }
   return params;
+}
+
+/** The printer page a path shows, if any (see `printerPage`). */
+export function printerRoute(path: string): { id: number; tab: PrinterTab } | null {
+  const m = match('/printer/:id', path) ?? match('/printer/:id/:tab', path);
+  const tab = m?.tab ?? 'control';
+  return m && (PRINTER_TABS as readonly string[]).includes(tab) ? { id: Number(m.id), tab: tab as PrinterTab } : null;
 }

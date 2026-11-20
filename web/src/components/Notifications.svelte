@@ -1,16 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
-  import {
-    PUSH_EVENTS,
-    currentSubscription,
-    endpointFingerprint,
-    pushBlocker,
-    subscribe,
-    type PushDevice,
-    type PushEventKind,
-  } from '../lib/push';
-  import { toast, toastError } from '../lib/toast.svelte';
+  import { PUSH_EVENTS, type PushDevice, type PushEventKind } from '../../../shared/api.ts';
+  import { currentSubscription, endpointFingerprint, pushBlocker, subscribe } from '../lib/push';
+  import { orToast, toast, toastError } from '../lib/toast.svelte';
   import { formatDate, formatTimeAgo, t } from '../lib/i18n.svelte';
   import { confirmAction } from '../lib/confirm.svelte';
   import Trans from './Trans.svelte';
@@ -28,7 +21,7 @@
   const otherDevices = $derived(devices.filter((d) => d.fingerprint !== myFingerprint));
 
   async function load() {
-    devices = await api<PushDevice[]>('/api/push/subscriptions').catch(() => []);
+    devices = await orToast(api<PushDevice[]>('/api/push/subscriptions'), []);
     if (!blocker) {
       const sub = await currentSubscription().catch(() => null);
       myFingerprint = sub ? await endpointFingerprint(sub.endpoint) : null;
@@ -145,14 +138,14 @@
     <span class="muted small">{t('common.loading')}</span>
   {:else if thisDevice}
     <div class="prefs">
-      {#each PUSH_EVENTS as e (e.key)}
+      {#each PUSH_EVENTS as event (event)}
         <label class="row pref">
           <input
             type="checkbox"
-            checked={thisDevice.preferences[e.key]}
-            onchange={(ev) => setPreference(thisDevice, e.key, ev.currentTarget.checked)}
+            checked={thisDevice.preferences[event]}
+            onchange={(ev) => setPreference(thisDevice, event, ev.currentTarget.checked)}
           />
-          {t(`notif.event.${e.key}`)}
+          {t(`notif.event.${event}`)}
         </label>
       {/each}
     </div>
@@ -177,7 +170,7 @@
               </div>
             </td>
             <td class="muted small">
-              {t('notif.eventCount', { count: PUSH_EVENTS.filter((e) => d.preferences[e.key]).length, total: PUSH_EVENTS.length })}
+              {t('notif.eventCount', { count: PUSH_EVENTS.filter((event) => d.preferences[event]).length, total: PUSH_EVENTS.length })}
             </td>
             <td style="text-align:right"><button class="small danger" onclick={() => remove(d)}>{t('common.remove')}</button></td>
           </tr>

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { PrinterDetail, SendFn } from '../lib/api';
+  import type { PrinterDetail } from '../../../shared/api.ts';
+  import type { SendFn } from '../lib/api';
   import { formatDate, t } from '../lib/i18n.svelte';
   import Trans from './Trans.svelte';
 
@@ -11,7 +12,7 @@
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!gcode.trim()) return;
-    if (await send('gcode', { gcode }, t('console.sent'))) gcode = '';
+    if (await send({ action: 'gcode', gcode }, t('console.sent'))) gcode = '';
   }
 
   const time = (at: number) => formatDate(at, { timeStyle: 'medium' });

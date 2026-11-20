@@ -1,10 +1,14 @@
 import crypto from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.ts';
+import type { SessionInfo, SessionUser, UserInfo } from '../shared/api.ts';
+import { ACCOUNT } from '../shared/forms.ts';
 import { db, type UserRow } from './db.ts';
 
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 export const SESSION_COOKIE = 'bc_session';
+/** Public session ids: the first hex characters of the token hash. */
+export const SESSION_ID_LENGTH = 16;
 
 // ---------------------------------------------------------------- passwords
 
@@ -52,8 +56,9 @@ const COMMON_PASSWORDS = new Set([
  * containing the username are rejected. Returns an error message or null.
  */
 export function passwordProblem(password: string, username: string): string | null {
-  if (password.length > 256) return 'Password is too long (max 256 characters)';
-  if (password.length < 10) return 'Password must be at least 10 characters';
+  const { minLength, maxLength } = ACCOUNT.password;
+  if (password.length > maxLength) return `Password is too long (max ${maxLength} characters)`;
+  if (password.length < minLength) return `Password must be at least ${minLength} characters`;
   const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(password)).length;
   if (password.length < 16 && classes < 3) {
     return 'Use at least 3 of: lowercase, uppercase, digits, symbols — or a passphrase of 16+ characters';
@@ -68,7 +73,7 @@ export function passwordProblem(password: string, username: string): string | nu
 
 const sha256 = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
 
-export function createSession(userId: number, request?: FastifyRequest): string {
+export function createSession(userId: number, request: FastifyRequest): string {
   const token = crypto.randomBytes(32).toString('base64url');
   const now = Date.now();
   db.prepare(
@@ -79,8 +84,8 @@ export function createSession(userId: number, request?: FastifyRequest): string 
     now + config.sessionTtlMs,
     now,
     now,
-    request?.ip ?? null,
-    String(request?.headers['user-agent'] ?? '').slice(0, 200) || null,
+    request.ip,
+    String(request.headers['user-agent'] ?? '').slice(0, 200) || null,
   );
   return token;
 }
@@ -95,11 +100,6 @@ export function deleteUserSessions(userId: number, exceptToken?: string) {
   } else {
     db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   }
-}
-
-export interface SessionUser {
-  id: number;
-  username: string;
 }
 
 /**
@@ -120,14 +120,13 @@ export function userFromToken(token: string | undefined): SessionUser | null {
     db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hash);
     return null;
   }
-  // Sliding idle window; write at most once a minute.
   if (now - row.last_seen_at > 60_000) {
     db.prepare('UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?').run(now, hash);
   }
   return { id: row.id, username: row.username };
 }
 
-export function listSessions(userId: number, currentToken: string | undefined) {
+export function listSessions(userId: number, currentToken: string | undefined): SessionInfo[] {
   const current = currentToken ? sha256(currentToken) : '';
   return (
     db
@@ -136,8 +135,7 @@ export function listSessions(userId: number, currentToken: string | undefined) {
       )
       .all(userId) as { token_hash: string; created_at: number; last_seen_at: number; ip: string | null; user_agent: string | null }[]
   ).map((s) => ({
-    // Expose a short, non-reversible id rather than the stored hash.
-    id: s.token_hash.slice(0, 16),
+    id: s.token_hash.slice(0, SESSION_ID_LENGTH),
     createdAt: s.created_at,
     lastSeenAt: s.last_seen_at,
     ip: s.ip,
@@ -147,9 +145,8 @@ export function listSessions(userId: number, currentToken: string | undefined) {
 }
 
 export function revokeSession(userId: number, id: string) {
-  if (!/^[a-f0-9]{16}$/.test(id)) return false;
   const result = db
-    .prepare("DELETE FROM sessions WHERE user_id = ? AND substr(token_hash, 1, 16) = ?")
+    .prepare(`DELETE FROM sessions WHERE user_id = ? AND substr(token_hash, 1, ${SESSION_ID_LENGTH}) = ?`)
     .run(userId, id);
   return Number(result.changes) > 0;
 }
@@ -161,12 +158,49 @@ export function pruneSessions() {
   );
 }
 
+// ---------------------------------------------------------------- accounts (every account is an administrator)
+
 export function userCount(): number {
   return (db.prepare('SELECT COUNT(*) AS c FROM users').get() as { c: number }).c;
 }
 
 export function findUser(username: string): UserRow | undefined {
   return db.prepare('SELECT * FROM users WHERE username = ?').get(username) as UserRow | undefined;
+}
+
+export function getUser(id: number): UserRow | undefined {
+  return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow | undefined;
+}
+
+export function listUsers(): UserInfo[] {
+  return db.prepare('SELECT id, username, created_at FROM users ORDER BY username').all() as unknown as UserInfo[];
+}
+
+export async function createUser(username: string, password: string) {
+  db.prepare('INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)').run(
+    username,
+    await hashPassword(password),
+    Date.now(),
+  );
+}
+
+/** The first-run account: returns its id, or null when an account already exists. */
+export async function createFirstUser(username: string, password: string): Promise<number | null> {
+  const hash = await hashPassword(password);
+  // The conditional INSERT makes concurrent first-run setups safe.
+  const result = db
+    .prepare('INSERT INTO users (username, password_hash, created_at) SELECT ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM users)')
+    .run(username, hash, Date.now());
+  return Number(result.changes) ? Number(result.lastInsertRowid) : null;
+}
+
+export async function setPassword(userId: number, password: string) {
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(await hashPassword(password), userId);
+}
+
+/** Its sessions go with it (foreign key cascade). */
+export function deleteUser(id: number) {
+  db.prepare('DELETE FROM users WHERE id = ?').run(id);
 }
 
 export function setSessionCookie(reply: FastifyReply, token: string) {
@@ -217,9 +251,8 @@ export function recordLoginFailure(ip: string, username: string): boolean {
   }
   ipFailures.set(ip, ipEntry);
 
-  const name = username.toLowerCase().slice(0, 64);
+  const name = username.toLowerCase();
   const acct = accountFailures.get(name) ?? { count: 0, blockedUntil: 0, last: now };
-  // Failures older than the lock window are forgotten.
   if (now - acct.last > ACCOUNT_LOCK_MS) acct.count = 0;
   acct.count += 1;
   acct.last = now;

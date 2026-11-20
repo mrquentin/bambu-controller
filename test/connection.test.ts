@@ -1,13 +1,10 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import type { AddressInfo } from 'node:net';
-import tls from 'node:tls';
 import { afterEach, beforeEach, describe, it, mock } from 'node:test';
-import { Aedes } from 'aedes';
-import mqtt, { type IClientOptions, type MqttClient } from 'mqtt';
-import selfsigned from 'selfsigned';
+import type { IClientOptions, MqttClient } from 'mqtt';
 import type { PrinterRow } from '../server/db.ts';
-import { DEFAULT_TIMING, nextDelay, PrinterConnection } from '../server/bambu/printer.ts';
+import { nextDelay } from '../server/bambu/backoff.ts';
+import { DEFAULT_TIMING, PrinterConnection } from '../server/bambu/printer.ts';
 
 const row: PrinterRow = {
   id: 1,
@@ -208,66 +205,5 @@ describe('PrinterConnection reconnects and silence detection', () => {
     mock.timers.tick(10 * 60_000);
     assert.equal(clients.length, 3);
     assert.equal(conn.status, 'offline');
-  });
-});
-
-describe('PrinterConnection against a real MQTT broker', () => {
-  it('connects, reports, and backs off on a wrong access code', async () => {
-    const pems = await selfsigned.generate([{ name: 'commonName', value: row.serial }], { keySize: 2048 });
-    const broker = await Aedes.createBroker();
-    broker.authenticate = (_client, username, password, done) => {
-      const ok = username === 'bblp' && password?.toString() === row.access_code;
-      done(ok ? null : Object.assign(new Error('Bad username or password'), { returnCode: 4 }), ok);
-    };
-    broker.on('publish', (packet, client) => {
-      if (!client || packet.topic !== `device/${row.serial}/request`) return;
-      broker.publish(
-        {
-          cmd: 'publish',
-          topic: `device/${row.serial}/report`,
-          payload: Buffer.from(JSON.stringify({ print: { command: 'push_status', gcode_state: 'IDLE' } })),
-          qos: 0,
-          retain: false,
-          dup: false,
-        },
-        () => {},
-      );
-    });
-    const server = tls.createServer({ key: pems.private, cert: pems.cert }, broker.handle as never);
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const port = (server.address() as AddressInfo).port;
-    const connect = (o: IClientOptions) => mqtt.connect({ ...o, port });
-    const waitFor = (conn: PrinterConnection, pred: () => boolean) =>
-      new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error('timeout')), 5_000);
-        const check = () => {
-          if (!pred()) return;
-          clearTimeout(timer);
-          conn.off('update', check);
-          resolve();
-        };
-        conn.on('update', check);
-        check();
-      });
-
-    const good = new PrinterConnection(row, { connect });
-    const bad = new PrinterConnection({ ...row, access_code: 'wrong' }, { connect, random: () => 0 });
-    try {
-      good.start();
-      await waitFor(good, () => good.state.gcode_state === 'IDLE');
-      assert.equal(good.status, 'online');
-      assert.equal(good.snapshot().connection.nextRetryAt, null);
-
-      bad.start();
-      await waitFor(bad, () => bad.nextRetryAt > 0);
-      assert.equal(bad.status, 'error');
-      assert.match(bad.error!, /access code/);
-      assert.ok(bad.nextRetryAt - Date.now() >= 29_000, 'auth failure backs off to the cap range');
-    } finally {
-      good.stop();
-      bad.stop();
-      await new Promise<void>((resolve) => broker.close(() => resolve()));
-      server.close();
-    }
   });
 });

@@ -1,10 +1,14 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { FastifyBaseLogger } from 'fastify';
+import { PUSH_EVENTS, type PushDevice, type PushEventKind, type PushPreferences } from '../shared/api.ts';
+import { printerPage } from '../shared/pages.ts';
+import { hmsCode, hmsSeverity, printErrorCode } from '../shared/printer.ts';
 import type { JobSnapshot, PrinterEvent } from './bambu/job-events.ts';
 import { config } from './config.ts';
 import { db } from './db.ts';
+import { HttpError } from './http-error.ts';
+import { log } from './log.ts';
 import { checkPushEndpoint } from './net-policy.ts';
 import { decrypt, encrypt } from './secrets.ts';
 import {
@@ -25,12 +29,8 @@ import {
  * HTTPS to that service.
  */
 
-export const PUSH_EVENTS = ['started', 'finished', 'failed', 'paused', 'hms'] as const;
-export type PushEventKind = (typeof PUSH_EVENTS)[number];
-export type PushPreferences = Record<PushEventKind, boolean>;
-
 /** Per-user cap on subscribed devices. */
-export const MAX_SUBSCRIPTIONS_PER_USER = 20;
+const MAX_SUBSCRIPTIONS_PER_USER = 20;
 /** The same HMS alert on the same printer is notified at most once per window. */
 const HMS_REPEAT_MS = 30 * 60_000;
 
@@ -50,8 +50,7 @@ interface PushSubscriptionRow {
   last_success_at: number | null;
 }
 
-export interface PushMessage {
-  kind: PushEventKind | 'test';
+interface PushMessage {
   title: string;
   body: string;
   /** Notification tag: a newer notification with the same tag replaces the old one. */
@@ -66,12 +65,6 @@ export interface PushMessage {
 
 export type DeliveryResult = 'sent' | 'gone' | 'failed';
 
-let log: FastifyBaseLogger | null = null;
-
-export function setPushLogger(logger: FastifyBaseLogger) {
-  log = logger;
-}
-
 // ---------------------------------------------------------------- VAPID keys
 
 let vapidKeys: VapidKeys | null = null;
@@ -85,7 +78,6 @@ let vapidKeys: VapidKeys | null = null;
 export function getVapidKeys(): VapidKeys {
   if (vapidKeys) return vapidKeys;
   const file = path.join(config.dataDir, 'vapid.key');
-  // Read directly instead of checking existence first (no check-then-use race).
   let stored: string | null = null;
   try {
     stored = fs.readFileSync(file, 'utf8').trim();
@@ -97,7 +89,7 @@ export function getVapidKeys(): VapidKeys {
       vapidKeys = vapidKeysFromJwk(JSON.parse(decrypt(stored)));
       return vapidKeys;
     } catch {
-      log?.warn('Push: vapid.key is unreadable (APP_SECRET changed?); generating a new key. Devices must re-enable notifications.');
+      log.warn('Push: vapid.key is unreadable (APP_SECRET changed?); generating a new key. Devices must re-enable notifications.');
       db.prepare('DELETE FROM push_subscriptions').run();
       fs.rmSync(file, { force: true });
     }
@@ -119,7 +111,7 @@ function preferencesOf(row: PushSubscriptionRow): PushPreferences {
 /** Hash of the endpoint so the browser can recognize its own subscription without the server echoing the URL. */
 export const endpointFingerprint = (endpoint: string) => crypto.createHash('sha256').update(endpoint).digest('hex');
 
-function publicView(row: PushSubscriptionRow) {
+function publicView(row: PushSubscriptionRow): PushDevice {
   return {
     id: row.id,
     fingerprint: endpointFingerprint(row.endpoint),
@@ -130,37 +122,29 @@ function publicView(row: PushSubscriptionRow) {
     preferences: preferencesOf(row),
   };
 }
-export type PublicSubscription = ReturnType<typeof publicView>;
 
-export interface SubscriptionInput {
+interface SubscriptionInput {
   endpoint: string;
   p256dh: string;
   auth: string;
 }
 
+/** The browser's `PushSubscription.toJSON()`. */
+export interface BrowserSubscription {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
 /** Validate a browser `PushSubscription.toJSON()`; returns an error message or the input. */
-export async function parseSubscription(body: any): Promise<SubscriptionInput | string> {
-  const endpoint = typeof body?.endpoint === 'string' ? body.endpoint : '';
-  const p256dh = typeof body?.keys?.p256dh === 'string' ? body.keys.p256dh : '';
-  const auth = typeof body?.keys?.auth === 'string' ? body.keys.auth : '';
-  if (!endpoint || !p256dh || !auth) return 'Invalid push subscription';
+export async function parseSubscription(subscription: BrowserSubscription): Promise<SubscriptionInput | string> {
+  const { endpoint, keys: { p256dh, auth } } = subscription;
   if (!/^[\w-]{80,100}$/.test(p256dh) || !isP256PublicKey(fromB64url(p256dh))) return 'Invalid push subscription key';
   if (!/^[\w-]{16,30}$/.test(auth) || fromB64url(auth).length !== 16) return 'Invalid push subscription secret';
   const problem = await checkPushEndpoint(endpoint);
   return problem ?? { endpoint, p256dh, auth };
 }
 
-export function parsePreferences(body: any): Partial<PushPreferences> | string {
-  if (typeof body !== 'object' || body === null) return 'Invalid preferences';
-  const prefs: Partial<PushPreferences> = {};
-  for (const [key, value] of Object.entries(body)) {
-    if (!(PUSH_EVENTS as readonly string[]).includes(key) || typeof value !== 'boolean') return `Invalid preference "${key}"`;
-    prefs[key as PushEventKind] = value;
-  }
-  return prefs;
-}
-
-export function listSubscriptions(userId: number): PublicSubscription[] {
+export function listSubscriptions(userId: number): PushDevice[] {
   return (
     db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ? ORDER BY created_at').all(userId) as unknown as PushSubscriptionRow[]
   ).map(publicView);
@@ -182,7 +166,7 @@ export function saveSubscription(
   input: SubscriptionInput,
   userAgent: string | null,
   replaces?: string,
-): PublicSubscription | string {
+): PushDevice {
   const existing = db.prepare('SELECT id FROM push_subscriptions WHERE endpoint = ?').get(input.endpoint);
   const old = replaces
     ? (db.prepare('SELECT * FROM push_subscriptions WHERE endpoint = ? AND user_id = ?').get(replaces, userId) as unknown as
@@ -191,7 +175,7 @@ export function saveSubscription(
     : undefined;
   const count = (db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE user_id = ?').get(userId) as { n: number }).n;
   if (!existing && !old && count >= MAX_SUBSCRIPTIONS_PER_USER) {
-    return `At most ${MAX_SUBSCRIPTIONS_PER_USER} devices per user; remove one first`;
+    throw new HttpError(400, `At most ${MAX_SUBSCRIPTIONS_PER_USER} devices per user; remove one first`);
   }
   const ua = userAgent ? userAgent.slice(0, 300) : null;
   db.exec('BEGIN');
@@ -222,21 +206,21 @@ function setPreferencesWhere(where: string, params: (string | number)[], prefs: 
   db.prepare(`UPDATE push_subscriptions SET ${sets} WHERE ${where}`).run(...entries.map(([, v]) => (v ? 1 : 0)), ...params);
 }
 
-export function updatePreferences(userId: number, id: number, prefs: Partial<PushPreferences>): PublicSubscription | null {
+export function updatePreferences(userId: number, id: number, prefs: Partial<PushPreferences>): PushDevice | null {
   if (!ownSubscription(userId, id)) return null;
   setPreferencesWhere('id = ?', [id], prefs);
   return publicView(ownSubscription(userId, id)!);
 }
 
 /** Returns the deleted subscription (for the audit log), or null when it isn't the user's. */
-export function deleteSubscription(userId: number, id: number): PublicSubscription | null {
+export function deleteSubscription(userId: number, id: number): PushDevice | null {
   const row = ownSubscription(userId, id);
   if (!row) return null;
   db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(id);
   return publicView(row);
 }
 
-export function subscriptionsFor(kind: PushEventKind): PushSubscriptionRow[] {
+function subscriptionsFor(kind: PushEventKind): PushSubscriptionRow[] {
   return db.prepare(`SELECT * FROM push_subscriptions WHERE ${column(kind)} = 1`).all() as unknown as PushSubscriptionRow[];
 }
 
@@ -261,7 +245,7 @@ export async function deliver(row: PushSubscriptionRow, message: PushMessage): P
     // Checked again at send time: DNS may have changed since the subscription was stored.
     const problem = await checkPushEndpoint(row.endpoint);
     if (problem) {
-      log?.warn({ push: { host, subscription: row.id } }, `push refused: ${problem}`);
+      log.warn({ push: { host, subscription: row.id } }, `push refused: ${problem}`);
       return 'failed';
     }
     const payload = JSON.stringify({ title: message.title, body: message.body, tag: message.tag, url: message.url, at: Date.now() });
@@ -287,13 +271,13 @@ export async function deliver(row: PushSubscriptionRow, message: PushMessage): P
     }
     if (res.status === 404 || res.status === 410) {
       db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(row.id);
-      log?.info({ push: { host, subscription: row.id, status: res.status } }, 'push subscription expired, removed');
+      log.info({ push: { host, subscription: row.id, status: res.status } }, 'push subscription expired, removed');
       return 'gone';
     }
-    log?.warn({ push: { host, subscription: row.id, status: res.status } }, 'push delivery failed');
+    log.warn({ push: { host, subscription: row.id, status: res.status } }, 'push delivery failed');
     return 'failed';
   } catch (err) {
-    log?.warn({ push: { host, subscription: row.id, error: (err as Error).message } }, 'push delivery failed');
+    log.warn({ push: { host, subscription: row.id, error: (err as Error).message } }, 'push delivery failed');
     return 'failed';
   }
 }
@@ -302,7 +286,6 @@ export async function sendTest(userId: number, id: number): Promise<DeliveryResu
   const row = ownSubscription(userId, id);
   if (!row) return null;
   return deliver(row, {
-    kind: 'test',
     title: 'Bambu Controller',
     body: 'Test notification: notifications work on this device.',
     tag: 'test',
@@ -314,9 +297,6 @@ export async function sendTest(userId: number, id: number): Promise<DeliveryResu
 
 // ---------------------------------------------------------------- printer events
 
-const hex4 = (n: number) => n.toString(16).toUpperCase().padStart(4, '0');
-const errorCode = (n: number) => `${hex4((n >>> 16) & 0xffff)}_${hex4(n & 0xffff)}`;
-export const hmsCode = (attr: number, code: number) => `HMS_${errorCode(attr >>> 0)}_${errorCode(code >>> 0)}`;
 const HMS_SEVERITY: Record<number, string> = { 1: 'Fatal', 2: 'Serious', 3: 'Common', 4: 'Info' };
 
 function duration(minutes: number) {
@@ -332,11 +312,14 @@ function progress(job: JobSnapshot) {
   return parts.join(' · ');
 }
 
+/** A printer event's notification, and the preference that enables it. */
+type EventMessage = PushMessage & { kind: PushEventKind };
+
 /** Notification for a printer event, or null when it isn't notified. */
-export function messageFor(printer: { id: number; name: string }, event: PrinterEvent): PushMessage | null {
+export function messageFor(printer: { id: number; name: string }, event: PrinterEvent): EventMessage | null {
   const name = printer.name.slice(0, 60);
-  const base = { url: `/#/printer/${printer.id}`, ttl: 12 * 3600 };
-  const make = (kind: PushEventKind, title: string, body: string, urgency: PushMessage['urgency'] = 'normal'): PushMessage => ({
+  const base = { url: printerPage(printer.id), ttl: 12 * 3600 };
+  const make = (kind: PushEventKind, title: string, body: string, urgency: PushMessage['urgency'] = 'normal'): EventMessage => ({
     ...base,
     kind,
     title: `${name}: ${title}`,
@@ -357,17 +340,17 @@ export function messageFor(printer: { id: number; name: string }, event: Printer
     case 'job_finished':
       return make('finished', 'print finished', job.task?.slice(0, 100) ?? 'Print job');
     case 'job_failed': {
-      const error = event.printError ? ` · error ${errorCode(event.printError)}` : '';
+      const error = event.printError ? ` · error ${printErrorCode(event.printError)}` : '';
       return make('failed', 'print failed or cancelled', `${progress(job)}${error}`, 'high');
     }
     case 'job_paused': {
       if (event.printError) {
-        return make('paused', 'print paused, needs attention', `${progress(job)} · error ${errorCode(event.printError)}`, 'high');
+        return make('paused', 'print paused, needs attention', `${progress(job)} · error ${printErrorCode(event.printError)}`, 'high');
       }
       return make('paused', 'print paused', progress(job));
     }
     case 'hms_raised': {
-      const shown = event.alerts.slice(0, 3).map((a) => `${hmsCode(a.attr, a.code)} (${HMS_SEVERITY[(a.code >>> 16) & 0xffff] ?? 'Unknown'})`);
+      const shown = event.alerts.slice(0, 3).map((a) => `HMS_${hmsCode(a).code} (${HMS_SEVERITY[hmsSeverity(a)] ?? 'Unknown'})`);
       if (event.alerts.length > 3) shown.push(`+${event.alerts.length - 3} more`);
       return make('hms', event.alerts.length > 1 ? 'health alerts' : 'health alert', shown.join(', '), 'high');
     }
@@ -401,10 +384,10 @@ export async function notifyPrinterEvent(printer: { id: number; name: string }, 
       event = { ...event, alerts };
     }
     const message = messageFor(printer, event);
-    if (!message || message.kind === 'test') return;
+    if (!message) return;
     const targets = subscriptionsFor(message.kind);
     await Promise.all(targets.map((row) => deliver(row, message)));
   } catch (err) {
-    log?.error({ err }, 'push notification failed');
+    log.error({ err }, 'push notification failed');
   }
 }

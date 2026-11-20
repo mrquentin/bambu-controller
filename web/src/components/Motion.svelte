@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { JogAxis } from '../../../shared/commands.ts';
+  import { motionLocked } from '../../../shared/printer.ts';
   import type { SendFn } from '../lib/api';
   import { nozzles } from '../lib/bambu';
   import { t } from '../lib/i18n.svelte';
@@ -9,11 +11,11 @@
   let step = $state(10);
   let extrudeAmount = $state(10);
 
-  const printing = $derived(['RUNNING', 'PREPARE'].includes(s.gcode_state));
+  const printing = $derived(motionLocked(s.gcode_state));
   const disabled = $derived(!online || printing);
   const hotEnough = $derived(nozzles(s).some((n) => (n.current ?? 0) >= 170));
 
-  const jog = (axis: 'X' | 'Y' | 'Z', direction: 1 | -1) => send('jog', { axis, distance: direction * step });
+  const jog = (axis: JogAxis, direction: 1 | -1) => send({ action: 'jog', axis, distance: direction * step });
 
   async function home() {
     const ok = await confirmAction({
@@ -21,7 +23,7 @@
       message: t('motion.confirmHomeText'),
       confirmLabel: t('motion.homeAction'),
     });
-    if (ok) await send('home', {}, t('motion.homing'));
+    if (ok) await send({ action: 'home' }, t('motion.homing'));
   }
 </script>
 
@@ -62,8 +64,8 @@
       <select bind:value={extrudeAmount} style="width:auto" aria-label={t('motion.extruder')}>
         {#each [5, 10, 20, 50] as v}<option value={v}>{t('unit.mm', { value: v })}</option>{/each}
       </select>
-      <button class="small" disabled={disabled || !hotEnough} onclick={() => send('extrude', { distance: -extrudeAmount })}>{t('motion.retract')}</button>
-      <button class="small" disabled={disabled || !hotEnough} onclick={() => send('extrude', { distance: extrudeAmount })}>{t('motion.extrude')}</button>
+      <button class="small" disabled={disabled || !hotEnough} onclick={() => send({ action: 'extrude', distance: -extrudeAmount })}>{t('motion.retract')}</button>
+      <button class="small" disabled={disabled || !hotEnough} onclick={() => send({ action: 'extrude', distance: extrudeAmount })}>{t('motion.extrude')}</button>
     </div>
     {#if !hotEnough}<span class="muted small">{t('motion.heatToExtrude')}</span>{/if}
   </div>

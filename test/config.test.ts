@@ -42,4 +42,10 @@ describe('configuration from environment variables', () => {
     assert.throws(() => loadConfig({ PORT: 'abc' }), /Invalid PORT/);
     assert.throws(() => loadConfig({ SESSION_IDLE_HOURS: '0' }), /Invalid SESSION_IDLE_HOURS/);
   });
+
+  it('requires a long enough APP_SECRET and keeps it exactly as given', () => {
+    assert.throws(() => loadConfig({ APP_SECRET: 'too-short' }), /APP_SECRET must be at least 16 characters/);
+    assert.equal(loadConfig({ APP_SECRET: ' a secret, spaces kept ' }).appSecret, ' a secret, spaces kept ');
+    assert.equal(loadConfig({ APP_SECRET: '  ' }).appSecret, null);
+  });
 });

@@ -24,7 +24,7 @@ const headers = () => ({ cookie, 'content-type': 'application/json', 'x-requeste
 const get = (url: string) => app.inject({ method: 'GET', url, headers: { cookie } });
 
 before(async () => {
-  app = await buildApp({ logLevel: false });
+  app = await buildApp();
   await app.ready();
   const setup = await app.inject({
     method: 'POST',
@@ -62,7 +62,7 @@ before(async () => {
 });
 
 after(async () => {
-  manager.remove(printer.connection.row.id);
+  manager.remove(printer);
   ftpServer.close();
   await app.close();
 });
@@ -74,7 +74,7 @@ const base = () => `/api/printers/${printer.connection.row.id}`;
 
 describe('PrinterFtps ranged reads', () => {
   it('finds the first existing file and reads byte ranges', async () => {
-    const ftps = new PrinterFtps('127.0.0.1', '12345678', { serial: '01P00A000000001', tls_verify: 0 });
+    const ftps = new PrinterFtps(() => ({ ip: '127.0.0.1', access_code: '12345678', serial: '01P00A000000001', tls_verify: 0 }));
     ftps.port = (ftpServer.address() as AddressInfo).port;
     assert.deepEqual(await ftps.firstExisting(['/nope.3mf', '/cache/Benchy.gcode.3mf']), {
       path: '/cache/Benchy.gcode.3mf',
@@ -145,7 +145,7 @@ describe('job objects API', () => {
     const command = (payload: Record<string, unknown>) =>
       app.inject({ method: 'POST', url: `${base()}/command`, headers: headers(), payload });
 
-    for (const ids of [[], [0], ['79'], [424242]]) {
+    for (const ids of [undefined, 'x', [], [0], [-1], [1.5], ['79'], [2 ** 31], new Array(257).fill(1), [424242]]) {
       const res = await command({ action: 'skipObjects', ids });
       assert.equal(res.statusCode, 400, JSON.stringify(ids));
     }

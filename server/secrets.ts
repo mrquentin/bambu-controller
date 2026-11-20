@@ -14,10 +14,8 @@ import { config } from './config.ts';
 const PREFIX = 'enc:v1:';
 
 function loadKey(): Buffer {
-  const fromEnv = process.env.APP_SECRET;
-  if (fromEnv) {
-    if (fromEnv.length < 16) throw new Error('APP_SECRET must be at least 16 characters');
-    return crypto.createHash('sha256').update(fromEnv).digest();
+  if (config.appSecret) {
+    return crypto.createHash('sha256').update(config.appSecret).digest();
   }
   const keyFile = path.join(config.dataDir, 'secret.key');
   if (!fs.existsSync(keyFile)) {

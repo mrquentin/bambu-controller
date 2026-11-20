@@ -1,13 +1,13 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { config } from './config.ts';
 
 /**
  * Printers live on the local network. Restricting printer addresses to
  * private / loopback / link-local ranges stops the app from being used to
- * probe arbitrary internet hosts (SSRF). Set ALLOW_PUBLIC_PRINTER_HOSTS=true
- * to lift the restriction (e.g. printers reached through a routed VPN).
+ * probe arbitrary internet hosts (SSRF), unless ALLOW_PUBLIC_PRINTER_HOSTS
+ * lifts the restriction.
  */
-const allowPublic = process.env.ALLOW_PUBLIC_PRINTER_HOSTS === 'true';
 
 const blockList = new net.BlockList();
 // Private / local ranges are added to a list we then use as an *allow* list.
@@ -36,7 +36,7 @@ export function isLocalAddress(ip: string) {
 
 /** Returns an error message, or null when the host is acceptable. */
 export async function checkPrinterHost(host: string): Promise<string | null> {
-  if (allowPublic) return null;
+  if (config.allowPublicPrinterHosts) return null;
   let addresses: string[];
   if (net.isIP(host)) {
     addresses = [host];

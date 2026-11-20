@@ -9,12 +9,10 @@ export {
   LOCALE_NAMES,
   formatDate,
   formatNumber,
-  formatRelative,
   formatTimeAgo,
   t,
   type Locale,
   type MessageKey,
-  type Params,
 } from './i18n.ts';
 
 export type LocaleChoice = Locale | 'auto';

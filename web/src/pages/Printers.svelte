@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, type PrinterSummary } from '../lib/api';
+  import type { PrinterSummary } from '../../../shared/api.ts';
+  import { jobActive } from '../../../shared/printer.ts';
+  import { api } from '../lib/api';
+  import { printerPage } from '../../../shared/pages.ts';
   import { formatDuration, gcodeStateInfo } from '../lib/bambu';
   import { t } from '../lib/i18n.svelte';
   import ConnectionBadge from '../components/ConnectionBadge.svelte';
@@ -54,7 +57,7 @@
     <div class="grid list">
       {#each printers as p (p.printer.id)}
         {@const st = gcodeStateInfo(p.gcodeState)}
-        <a class="card printer" href="#/printer/{p.printer.id}">
+        <a class="card printer" href={printerPage(p.printer.id)}>
           <div class="row">
             <div class="stack" style="gap:2px">
               <h2>{p.printer.name}</h2>
@@ -69,7 +72,7 @@
               <span class="badge plain tone-{st.tone}">{st.label}</span>
               {#if p.hmsCount > 0}<span class="badge plain tone-warn">{t('printers.alerts', { count: p.hmsCount })}</span>{/if}
             </div>
-            {#if p.gcodeState === 'RUNNING' || p.gcodeState === 'PAUSE' || p.gcodeState === 'PREPARE'}
+            {#if jobActive(p.gcodeState)}
               <div class="stack" style="gap:6px">
                 <div class="row small">
                   <span class="task">{p.task ?? t('job.title')}</span>

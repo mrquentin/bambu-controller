@@ -67,6 +67,7 @@ describe('report interpretation (web UI helpers)', () => {
   it('formats durations, sizes and colors', () => {
     assert.equal(formatDuration(95), '1h 35m');
     assert.equal(formatDuration(5), '5m');
+    assert.equal(formatDuration(119.6), '2h 00m');
     assert.equal(formatDuration(null), '—');
     assert.equal(formatBytes(1536), '1.5 KB');
     assert.equal(trayColor('FF8800FF'), '#FF8800');

@@ -2,11 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { mergeState } from '../server/bambu/printer.ts';
 
-/**
- * `mergeState` folds the partial reports of P1/A1 printers into the full
- * state. The basics (deep merge, array replacement, AMS by id) are covered in
- * bambu-protocol.test.ts; these are the edge cases seen on real printers.
- */
+/** `mergeState` folds the partial reports of P1/A1 printers into the full state. */
 
 type Json = Record<string, any>;
 

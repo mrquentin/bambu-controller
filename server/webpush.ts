@@ -13,9 +13,9 @@ const RECORD_SIZE = 4096;
 /** Header = salt (16) + rs (4) + idlen (1) + uncompressed P-256 key (65). */
 const HEADER_LENGTH = 16 + 4 + 1 + 65;
 /** Plaintext limit: one record minus the padding delimiter and the GCM tag. */
-export const MAX_PAYLOAD = RECORD_SIZE - HEADER_LENGTH - 1 - 16;
+const MAX_PAYLOAD = RECORD_SIZE - HEADER_LENGTH - 1 - 16;
 
-export const b64url = (buf: Uint8Array) => Buffer.from(buf).toString('base64url');
+const b64url = (buf: Uint8Array) => Buffer.from(buf).toString('base64url');
 export const fromB64url = (s: string) => Buffer.from(s, 'base64url');
 
 function hkdf(salt: Buffer, ikm: Buffer, info: Buffer, length: number): Buffer {

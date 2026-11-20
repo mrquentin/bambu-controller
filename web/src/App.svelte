@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type { AuthState } from '../../shared/api.ts';
   import { NetworkError, api, authEvents } from './lib/api';
   import { t } from './lib/i18n.svelte';
-  import { match, navigate, route } from './lib/router.svelte';
+  import { match, navigate, printerRoute, route } from './lib/router.svelte';
   import { toasts } from './lib/toast.svelte';
   import Login from './pages/Login.svelte';
   import Printers from './pages/Printers.svelte';
@@ -16,7 +17,7 @@
   import OfflineBanner from './components/OfflineBanner.svelte';
   import { connectivity } from './lib/connectivity.svelte';
 
-  let auth = $state<{ loading: boolean; setupRequired: boolean; user: { id: number; username: string } | null }>({
+  let auth = $state<AuthState & { loading: boolean }>({
     loading: true,
     setupRequired: false,
     user: null,
@@ -54,13 +55,7 @@
     return () => authEvents.removeEventListener('unauthorized', onUnauthorized);
   });
 
-  const detail = $derived(
-    match('/printer/:id', route.path) ??
-      (() => {
-        const m = match('/printer/:id/:tab', route.path);
-        return m && ['control', 'files', 'history', 'info'].includes(m.tab) ? m : null;
-      })(),
-  );
+  const detail = $derived(printerRoute(route.path));
   const edit = $derived(match('/printer/:id/edit', route.path));
 </script>
 
@@ -96,7 +91,7 @@
   {:else if edit}
     {#key edit.id}<EditPrinter id={Number(edit.id)} />{/key}
   {:else if detail}
-    {#key detail.id}<PrinterDetail id={Number(detail.id)} tab={(detail.tab ?? 'control') as 'control' | 'files' | 'history' | 'info'} />{/key}
+    {#key detail.id}<PrinterDetail id={detail.id} tab={detail.tab} />{/key}
   {:else}
     <div class="empty">{t('app.notFound')} <a href="#/">{t('app.backToPrinters')}</a></div>
   {/if}

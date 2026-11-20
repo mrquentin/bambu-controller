@@ -1,3 +1,5 @@
+import type { CommandLogEntry } from '../../../shared/api.ts';
+
 /**
  * Pick map decoding for "skip objects".
  *
@@ -8,20 +10,6 @@
  * valid object). Edge pixels may be blended, so colors that don't decode to
  * a known id are ignored; the reverse byte order is accepted as a fallback.
  */
-
-export interface JobObject {
-  id: number;
-  name: string;
-  skipped: boolean;
-}
-
-export interface JobObjects {
-  file: string;
-  plate: number;
-  objects: JobObject[];
-  hasPlateImage: boolean;
-  hasPickMap: boolean;
-}
 
 export function pickColorToId(r: number, g: number, b: number, a: number, known: Set<number>): number | null {
   if (a < 128) return null;
@@ -76,7 +64,7 @@ export function objectAt(ids: Int32Array, width: number, x: number, y: number, r
 }
 
 /** Error reported by the printer for a skip_objects command (from the command log), if any. */
-export function skipReplyError(entry: { direction: string; command: string; payload: unknown }): string | null {
+export function skipReplyError(entry: CommandLogEntry): string | null {
   if (entry.direction !== 'in' || entry.command !== 'skip_objects') return null;
   const reply = (entry.payload as { print?: { result?: unknown; reason?: unknown } })?.print;
   const result = String(reply?.result ?? '').toLowerCase();

@@ -1,42 +1,26 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type { AuditRecord, SessionInfo, SessionUser, UserInfo } from '../../../shared/api.ts';
+  import { ACCOUNT } from '../../../shared/forms.ts';
   import Notifications from '../components/Notifications.svelte';
   import { api } from '../lib/api';
-  import { toast, toastError } from '../lib/toast.svelte';
+  import { orToast, toast, toastError } from '../lib/toast.svelte';
   import { confirmAction } from '../lib/confirm.svelte';
   import { LOCALES, LOCALE_NAMES, formatDate, formatTimeAgo, i18n, setLocale, t, type LocaleChoice } from '../lib/i18n.svelte';
 
-  let { user }: { user: { id: number; username: string } } = $props();
+  let { user }: { user: SessionUser } = $props();
 
-  interface Session {
-    id: string;
-    createdAt: number;
-    lastSeenAt: number;
-    ip: string | null;
-    userAgent: string | null;
-    current: boolean;
-  }
-  interface AuditRow {
-    id: number;
-    at: number;
-    username: string | null;
-    ip: string | null;
-    action: string;
-    outcome: 'success' | 'failure' | 'blocked';
-    detail: Record<string, unknown> | null;
-  }
-
-  let users = $state<{ id: number; username: string; created_at: number }[]>([]);
-  let sessions = $state<Session[]>([]);
-  let auditLog = $state<AuditRow[]>([]);
+  let users = $state<UserInfo[]>([]);
+  let sessions = $state<SessionInfo[]>([]);
+  let auditLog = $state<AuditRecord[]>([]);
   let auditFilter = $state<'all' | 'problems'>('all');
   let pw = $state({ current: '', next: '', confirm: '' });
   let version = $state<string | null>(null);
   let newUser = $state({ username: '', password: '' });
 
-  const loadUsers = async () => (users = await api('/api/users').catch(() => []));
-  const loadSessions = async () => (sessions = await api('/api/auth/sessions').catch(() => []));
-  const loadAudit = async () => (auditLog = await api('/api/audit').catch(() => []));
+  const loadUsers = async () => (users = await orToast(api<UserInfo[]>('/api/users'), []));
+  const loadSessions = async () => (sessions = await orToast(api<SessionInfo[]>('/api/auth/sessions'), []));
+  const loadAudit = async () => (auditLog = await orToast(api<AuditRecord[]>('/api/audit'), []));
 
   onMount(() => {
     api<{ version: string }>('/api/health').then((h) => (version = h.version)).catch(() => {});
@@ -91,7 +75,7 @@
     }
   }
 
-  async function revoke(s: Session) {
+  async function revoke(s: SessionInfo) {
     const ok = await confirmAction({
       title: t('settings.confirmSignOut'),
       message: t('settings.confirmSignOutText', { device: browser(s.userAgent) }),
@@ -133,7 +117,7 @@
     return os ? t('settings.browserOn', { browser: b, os }) : b;
   }
 
-  const detailText = (d: AuditRow['detail']) =>
+  const detailText = (d: AuditRecord['detail']) =>
     d ? Object.entries(d).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ') : '';
 </script>
 
@@ -161,7 +145,7 @@
     <header><h2>{t('settings.changePassword')}</h2></header>
     <form class="stack" onsubmit={changePassword}>
       <label class="field">{t('settings.currentPassword')}<input type="password" bind:value={pw.current} autocomplete="current-password" required /></label>
-      <label class="field">{t('settings.newPassword')}<input type="password" bind:value={pw.next} autocomplete="new-password" minlength="10" required /></label>
+      <label class="field">{t('settings.newPassword')}<input type="password" bind:value={pw.next} autocomplete="new-password" minlength={ACCOUNT.password.minLength} maxlength={ACCOUNT.password.maxLength} required /></label>
       <label class="field">{t('settings.confirmNewPassword')}<input type="password" bind:value={pw.confirm} autocomplete="new-password" required /></label>
       <span class="muted small">{t('auth.passwordHint')}</span>
       <div><button class="primary">{t('settings.changePassword')}</button></div>
@@ -208,8 +192,8 @@
       </tbody>
     </table>
     <form class="row" onsubmit={addUser}>
-      <input placeholder={t('common.username')} aria-label={t('common.username')} bind:value={newUser.username} required minlength="3" autocomplete="off" />
-      <input type="password" placeholder={t('common.password')} aria-label={t('common.password')} bind:value={newUser.password} required minlength="10" autocomplete="new-password" />
+      <input placeholder={t('common.username')} aria-label={t('common.username')} bind:value={newUser.username} required minlength={ACCOUNT.username.minLength} maxlength={ACCOUNT.username.maxLength} autocomplete="off" />
+      <input type="password" placeholder={t('common.password')} aria-label={t('common.password')} bind:value={newUser.password} required minlength={ACCOUNT.password.minLength} maxlength={ACCOUNT.password.maxLength} autocomplete="new-password" />
       <button>{t('settings.addUser')}</button>
     </form>
     <p class="muted small" style="margin:0">{t('auth.passwordHint')} {t('settings.fullAccess')}</p>

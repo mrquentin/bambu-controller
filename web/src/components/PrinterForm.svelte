@@ -1,18 +1,13 @@
 <script lang="ts" module>
-  export interface PrinterFormValue {
-    name: string;
-    model: string;
-    serial: string;
-    ip: string;
-    accessCode: string;
-    camera: 'auto' | 'jpeg' | 'rtsps' | 'none';
-    tlsVerify: boolean;
-  }
+  import { PRINTER, type PrinterRequest } from '../../../shared/forms.ts';
+
+  export type PrinterFormValue = Required<Omit<PrinterRequest, 'skipTest'>>;
 </script>
 
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
+  import { orToast } from '../lib/toast.svelte';
   import { t } from '../lib/i18n.svelte';
   import Trans from './Trans.svelte';
 
@@ -33,7 +28,7 @@
   let error = $state<string | null>(null);
 
   onMount(async () => {
-    models = await api<string[]>('/api/models').catch(() => []);
+    models = await orToast(api<string[]>('/api/models'), []);
   });
 
   async function submit(event: SubmitEvent) {
@@ -54,7 +49,7 @@
   <div class="grid two">
     <label class="field">
       {t('common.name')}
-      <input bind:value={value.name} required maxlength="64" placeholder={t('form.namePlaceholder')} />
+      <input bind:value={value.name} required maxlength={PRINTER.name.maxLength} placeholder={t('form.namePlaceholder')} />
     </label>
     <label class="field">
       {t('form.model')}
@@ -66,17 +61,19 @@
     </label>
     <label class="field">
       {t('form.ip')}
-      <input bind:value={value.ip} required placeholder="192.168.1.50" />
+      <input bind:value={value.ip} required maxlength={PRINTER.host.maxLength} placeholder="192.168.1.50" />
     </label>
     <label class="field">
       {t('form.serial')}
-      <input bind:value={value.serial} required class="mono" placeholder="01S00A000000000" />
+      <input bind:value={value.serial} required minlength={PRINTER.serial.minLength} maxlength={PRINTER.serial.maxLength} class="mono" placeholder="01S00A000000000" />
     </label>
     <label class="field">
       {t('form.accessCode')}
       <input
         bind:value={value.accessCode}
         required={!editing}
+        minlength={PRINTER.accessCode.minLength}
+        maxlength={PRINTER.accessCode.maxLength}
         class="mono"
         autocomplete="off"
         placeholder={editing ? t('form.accessCodeKeep') : t('form.accessCodeNew')}

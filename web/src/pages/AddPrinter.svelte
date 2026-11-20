@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { api, type DiscoveredPrinter } from '../lib/api';
+  import type { DiscoveredPrinter } from '../../../shared/api.ts';
+  import { PRINTER, type PrinterRequest } from '../../../shared/forms.ts';
+  import { api } from '../lib/api';
   import { navigate } from '../lib/router.svelte';
   import { toast } from '../lib/toast.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -12,7 +14,6 @@
   let scanned = $state(false);
   let scanError = $state<string | null>(null);
 
-  // Access-code dialog for a discovered printer.
   let selected = $state<DiscoveredPrinter | null>(null);
   let name = $state('');
   let accessCode = $state('');
@@ -20,7 +21,6 @@
   let connectError = $state<string | null>(null);
   let codeInput = $state<HTMLInputElement>();
 
-  // Manual entry.
   let showManual = $state(false);
   let skipTest = $state(false);
   let form = $state<PrinterFormValue>({
@@ -39,7 +39,6 @@
     scanError = null;
     try {
       const found = await api<DiscoveredPrinter[]>('/api/printers/discover', { method: 'POST' });
-      // Merge so printers seen in earlier scans don't disappear.
       const bySerial = new Map(discovered.map((p) => [p.serial, p]));
       for (const p of found) bySerial.set(p.serial, p);
       discovered = [...bySerial.values()];
@@ -77,7 +76,7 @@
           accessCode: accessCode.trim(),
           camera: 'auto',
           tlsVerify,
-        },
+        } satisfies PrinterRequest,
       });
       toast(t('addPrinter.connected', { name }), 'success');
       navigate(`/printer/${id}`);
@@ -89,7 +88,7 @@
   }
 
   async function saveManual(value: PrinterFormValue) {
-    const { id } = await api<{ id: number }>('/api/printers', { body: { ...value, skipTest } });
+    const { id } = await api<{ id: number }>('/api/printers', { body: { ...value, skipTest } satisfies PrinterRequest });
     toast(t('addPrinter.added'), 'success');
     navigate(`/printer/${id}`);
   }
@@ -166,8 +165,8 @@
           bind:value={accessCode}
           class="mono code"
           required
-          minlength="8"
-          maxlength="8"
+          minlength={PRINTER.accessCode.minLength}
+          maxlength={PRINTER.accessCode.maxLength}
           autocomplete="off"
           spellcheck="false"
           placeholder="12345678"
@@ -180,7 +179,7 @@
 
       <label class="field">
         {t('common.name')}
-        <input bind:value={name} maxlength="64" disabled={connecting} />
+        <input bind:value={name} maxlength={PRINTER.name.maxLength} disabled={connecting} />
       </label>
 
       {#if connectError}<div class="alert error">{connectError}</div>{/if}

@@ -60,7 +60,7 @@ self.addEventListener('notificationclick', (event) => {
       const client = windows.find((c) => new URL(c.url).origin === self.location.origin);
       if (!client) return self.clients.openWindow(url);
       await client.focus();
-      // The app routes by hash; it listens for this message (see main.ts).
+      // The app routes by hash; it listens for this message (see web/src/lib/push.ts).
       client.postMessage({ type: 'navigate', url });
     })(),
   );

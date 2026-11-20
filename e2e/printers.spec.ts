@@ -45,6 +45,6 @@ test('adding a printer with a wrong access code is refused', async ({ page }) =>
   await page.getByLabel('Access code').fill('00000000');
   await page.getByLabel(/Verify printer certificate/).uncheck();
   await page.getByRole('button', { name: 'Add printer' }).click();
-  await expect(page.getByText('Wrong access code.')).toBeVisible();
+  await expect(page.getByText(/Wrong access code/)).toBeVisible();
   await expect(page).toHaveURL(/#\/add$/);
 });

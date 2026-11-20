@@ -2,15 +2,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import tls from 'node:tls';
 import { config } from '../config.ts';
-import type { CameraKind } from './models.ts';
-import { BBL_CA_FILE, describeTlsError, printerTlsOptions } from './tls.ts';
+import type { CameraKind } from '../../shared/printer.ts';
+import { HttpError } from '../http-error.ts';
+import { nextDelay } from './backoff.ts';
+import { describeTlsError, ffmpegTlsArgs, printerTlsOptions, type PrinterEndpoint } from './tls.ts';
 
-export interface CameraTarget {
+export interface CameraTarget extends PrinterEndpoint {
   kind: CameraKind;
-  ip: string;
-  accessCode: string;
-  serial: string;
-  tls_verify: number;
 }
 
 interface FrameSource {
@@ -38,7 +36,7 @@ class JpegTcpSource extends EventEmitter implements FrameSource {
       auth.writeUInt32LE(0x40, 0);
       auth.writeUInt32LE(0x3000, 4);
       auth.write('bblp', 16, 32, 'ascii');
-      auth.write(target.accessCode, 48, 32, 'ascii');
+      auth.write(target.access_code, 48, 32, 'ascii');
       this.socket.write(auth);
     });
     this.socket.on('data', (chunk) => this.onData(chunk));
@@ -87,18 +85,14 @@ class RtspsFfmpegSource extends EventEmitter implements FrameSource {
 
   constructor(target: CameraTarget) {
     super();
-    const url = `rtsps://bblp:${encodeURIComponent(target.accessCode)}@${target.ip}:322/streaming/live/1`;
+    const url = `rtsps://bblp:${encodeURIComponent(target.access_code)}@${target.ip}:322/streaming/live/1`;
     this.proc = spawn(
       config.ffmpegPath,
       [
         '-hide_banner',
         '-loglevel', 'error',
         '-rtsp_transport', 'tcp',
-        // Same trust policy as the other clients: Bambu CA + CN must equal the serial.
-        // (Newer ffmpeg verifies by default; without a CA it would always fail.)
-        ...(target.tls_verify
-          ? ['-tls_verify', '1', '-ca_file', BBL_CA_FILE, '-verifyhost', target.serial.toUpperCase()]
-          : ['-tls_verify', '0']),
+        ...ffmpegTlsArgs(target),
         '-timeout', '10000000', // socket I/O timeout (µs)
         '-fflags', 'nobuffer',
         '-flags', 'low_delay',
@@ -120,7 +114,7 @@ class RtspsFfmpegSource extends EventEmitter implements FrameSource {
       this.finish(err.code === 'ENOENT' ? 'ffmpeg not found — install it or set FFMPEG_PATH' : err.message),
     );
     this.proc.on('exit', (code) => {
-      const detail = this.stderr.trim().split('\n').pop()?.replace(target.accessCode, '***');
+      const detail = this.stderr.trim().split('\n').pop()?.replace(target.access_code, '***');
       this.finish(`ffmpeg exited (${code})${detail ? `: ${detail}` : ''}`);
     });
   }
@@ -168,7 +162,8 @@ export class CameraHub extends EventEmitter {
   private subscribers = 0;
   private idleTimer: NodeJS.Timeout | null = null;
   private retryTimer: NodeJS.Timeout | null = null;
-  private retryDelay = 2_000;
+  /** Consecutive failed attempts, for the reconnect backoff. */
+  private attempt = 0;
   private getTarget: () => CameraTarget;
 
   constructor(getTarget: () => CameraTarget) {
@@ -201,7 +196,7 @@ export class CameraHub extends EventEmitter {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         unsubscribe();
-        reject(new Error(this.error ?? 'Timed out waiting for a camera frame'));
+        reject(new HttpError(504, this.error ?? 'Timed out waiting for a camera frame'));
       }, timeoutMs);
       const unsubscribe = this.subscribe((jpeg) => {
         clearTimeout(timer);
@@ -218,10 +213,15 @@ export class CameraHub extends EventEmitter {
     if (hadSubscribers) this.open();
   }
 
+  get enabled() {
+    return this.getTarget().kind !== 'none';
+  }
+
   private open() {
     const target = this.getTarget();
     if (target.kind === 'none') {
       this.error = 'Camera disabled for this printer';
+      this.emit('status');
       return;
     }
     const source: FrameSource =
@@ -242,7 +242,7 @@ export class CameraHub extends EventEmitter {
     source.on('frame', (jpeg) => {
       armWatchdog();
       this.error = null;
-      this.retryDelay = 2_000;
+      this.attempt = 0;
       this.latest = jpeg;
       this.latestAt = Date.now();
       this.emit('frame', jpeg);
@@ -257,8 +257,7 @@ export class CameraHub extends EventEmitter {
         this.retryTimer = setTimeout(() => {
           this.retryTimer = null;
           if (this.subscribers > 0) this.open();
-        }, this.retryDelay);
-        this.retryDelay = Math.min(30_000, this.retryDelay * 2);
+        }, nextDelay(this.attempt++, Math.random, { base: 2_000, cap: 30_000 }));
       }
     };
     source.on('end', onEnd);

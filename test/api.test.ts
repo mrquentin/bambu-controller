@@ -16,7 +16,7 @@ function sessionCookie(res: { headers: Record<string, unknown> }) {
 }
 
 before(async () => {
-  app = await buildApp({ logLevel: false });
+  app = await buildApp();
   await app.ready();
 });
 

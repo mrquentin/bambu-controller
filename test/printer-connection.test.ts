@@ -308,10 +308,10 @@ describe('PrinterConnection against an MQTT broker', () => {
 
 describe('testConnection', () => {
   it('succeeds once the printer answers', async () => {
-    assert.deepEqual(await testConnection(host, SERIAL, ACCESS_CODE, 0, 5000), { ok: true });
+    assert.deepEqual(await testConnection({ ip: host, serial: SERIAL, access_code: ACCESS_CODE, tls_verify: 0 }, 5000), { ok: true });
   });
 
   it('explains a wrong access code', async () => {
-    assert.deepEqual(await testConnection(host, SERIAL, '00000000', 0, 5000), { ok: false, error: 'Wrong access code.' });
+    assert.deepEqual(await testConnection({ ip: host, serial: SERIAL, access_code: '00000000', tls_verify: 0 }, 5000), { ok: false, error: 'Wrong access code (it changes when LAN mode is toggled).' });
   });
 });

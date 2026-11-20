@@ -1,5 +1,6 @@
 import { CameraHub } from './bambu/camera.ts';
 import { PrinterFtps } from './bambu/ftps.ts';
+import { JobObjectsCache } from './bambu/job-objects.ts';
 import { cameraKindFor } from './bambu/models.ts';
 import { PrinterConnection } from './bambu/printer.ts';
 import { db, type PrinterRow } from './db.ts';
@@ -7,10 +8,16 @@ import { history } from './history.ts';
 import { notifyPrinterEvent } from './push.ts';
 import { decrypt, encrypt, isEncrypted } from './secrets.ts';
 
+/**
+ * A configured printer and its live clients. They all read the printer's
+ * settings from `connection.row`, so an edit only has to replace that row.
+ */
 export interface ManagedPrinter {
   connection: PrinterConnection;
   camera: CameraHub;
   ftps: PrinterFtps;
+  /** Objects of the running print (skip objects). */
+  jobObjects: JobObjectsCache;
 }
 
 export type PrinterInput = Omit<PrinterRow, 'id' | 'created_at'>;
@@ -38,15 +45,9 @@ class PrinterManager {
 
   private add(row: PrinterRow) {
     const connection = new PrinterConnection(row);
-    const camera = new CameraHub(() => ({
-      kind: cameraKindFor(connection.row.model, connection.row.camera),
-      ip: connection.row.ip,
-      accessCode: connection.row.access_code,
-      serial: connection.row.serial,
-      tls_verify: connection.row.tls_verify,
-    }));
-    const ftps = new PrinterFtps(row.ip, row.access_code, row);
-    this.printers.set(row.id, { connection, camera, ftps });
+    const camera = new CameraHub(() => ({ ...connection.row, kind: cameraKindFor(connection.row.model, connection.row.camera) }));
+    const ftps = new PrinterFtps(() => connection.row);
+    this.printers.set(row.id, { connection, camera, ftps, jobObjects: new JobObjectsCache(ftps) });
     history.watch(connection);
     connection.on('event', (event) => void notifyPrinterEvent(connection.row, event));
     connection.start();
@@ -80,37 +81,31 @@ class PrinterManager {
     return row;
   }
 
-  update(id: number, input: PrinterInput): PrinterRow | null {
-    const managed = this.printers.get(id);
-    if (!managed) return null;
+  update(managed: ManagedPrinter, input: PrinterInput) {
+    const id = managed.connection.row.id;
     db.prepare(
       'UPDATE printers SET name = ?, model = ?, serial = ?, ip = ?, access_code = ?, camera = ?, tls_verify = ? WHERE id = ?',
     ).run(input.name, input.model, input.serial, input.ip, encrypt(input.access_code), input.camera, input.tls_verify, id);
-    const row = loadRow(id);
-    managed.connection.update(row);
-    managed.ftps.configure(row.ip, row.access_code, row);
+    managed.connection.update(loadRow(id));
     managed.camera.restart();
-    return row;
   }
 
-  remove(id: number) {
-    const managed = this.printers.get(id);
-    if (!managed) return false;
-    history.unwatch(id, { removed: true });
-    managed.connection.stop();
-    managed.connection.removeAllListeners('event');
-    managed.camera.close();
+  remove(managed: ManagedPrinter) {
+    const id = managed.connection.row.id;
+    this.close(managed, { removed: true });
     this.printers.delete(id);
     db.prepare('DELETE FROM printers WHERE id = ?').run(id);
-    return true;
   }
 
   shutdown() {
-    for (const { connection, camera } of this.printers.values()) {
-      history.unwatch(connection.row.id);
-      connection.stop();
-      camera.close();
-    }
+    for (const managed of this.printers.values()) this.close(managed);
+  }
+
+  private close({ connection, camera }: ManagedPrinter, options: { removed?: boolean } = {}) {
+    history.unwatch(connection.row.id, options);
+    connection.stop();
+    connection.removeAllListeners('event');
+    camera.close();
   }
 }
 

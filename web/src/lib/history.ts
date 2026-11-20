@@ -1,40 +1,10 @@
-/** Print history types (mirror server/history.ts) and display helpers. */
+/** Print history display helpers. */
+import type { JobStatus, PrintJob } from '../../../shared/api.ts';
+import { formatDuration } from './bambu.ts';
 import { formatNumber, t, type MessageKey } from './i18n.ts';
 
-export type JobStatus = 'running' | 'paused' | 'finished' | 'failed' | 'interrupted';
-
-export interface PrintJob {
-  id: number;
-  printerId: number | null;
-  printerName: string;
-  task: string | null;
-  gcodeFile: string | null;
-  status: JobStatus;
-  startedAt: number;
-  endedAt: number | null;
-  /** Already running when the app first saw it: the real start is earlier. */
-  observedMidway: boolean;
-  totalLayers: number | null;
-  lastLayer: number | null;
-  lastPercent: number | null;
-  printError: number | null;
-  pausedMs: number;
-  durationMs: number;
-}
-
-export interface JobStats {
-  total: number;
-  byStatus: Record<JobStatus, number>;
-  successRate: number | null;
-  printTimeMs: number;
-}
-
-export interface HistoryStats extends JobStats {
-  printers: (JobStats & { printerId: number | null; printerName: string })[];
-}
-
 /** Tone per status; the label is the `jobStatus.<status>` message. */
-export const JOB_STATUSES: Record<JobStatus, string> = {
+const JOB_STATUSES: Record<JobStatus, string> = {
   running: 'accent',
   paused: 'warn',
   finished: 'ok',
@@ -51,12 +21,7 @@ export function jobStatusInfo(status: string) {
 export function formatMs(ms: number | null | undefined) {
   if (ms === null || ms === undefined || ms < 0) return '—';
   if (ms < 60_000) return t('duration.seconds', { s: String(Math.round(ms / 1000)) });
-  const minutes = Math.round(ms / 60_000);
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return h > 0
-    ? t('duration.hoursMinutes', { h: String(h), m: m.toString().padStart(2, '0') })
-    : t('duration.minutes', { m: String(m) });
+  return formatDuration(ms / 60_000);
 }
 
 export function formatRate(rate: number | null) {

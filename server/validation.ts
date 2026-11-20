@@ -1,4 +1,5 @@
 import type { FastifyServerOptions, FastifySchemaValidationError } from 'fastify';
+import { MAX_PATH_LENGTH } from '../shared/forms.ts';
 
 type SchemaErrorDataVar = 'body' | 'headers' | 'params' | 'querystring';
 
@@ -112,7 +113,7 @@ export const idParams = {
 /** `?path=` on printer storage; `safeRemotePath` still rejects traversal and control characters. */
 export const remotePathQuery = {
   type: 'object',
-  properties: { path: { type: 'string', maxLength: 1024, errorMessage: 'Invalid path' } },
+  properties: { path: { type: 'string', maxLength: MAX_PATH_LENGTH, errorMessage: 'Invalid path' } },
 } as const;
 
 export interface IdParams {

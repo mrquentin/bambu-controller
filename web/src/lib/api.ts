@@ -1,7 +1,9 @@
-import { isGatewayError, reportServerReachable, reportServerUnreachable } from './connectivity.svelte';
+import { fromServer, reportServerReachable, reportServerUnreachable } from './connectivity.svelte';
+import type { PrinterCommand } from '../../../shared/commands.ts';
 import { t } from './i18n.svelte';
+import { toast, toastError } from './toast.svelte';
 
-export class ApiError extends Error {
+class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
     super(message);
@@ -9,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 
-/** The request never got an HTTP response (offline, server down, …). */
+/** The request never reached the server (offline, server down, …). */
 export class NetworkError extends Error {}
 
 /** Fired when any request comes back 401 so the app can show the login screen. */
@@ -27,16 +29,12 @@ export async function api<T = any>(path: string, options: { method?: string; bod
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
     init.body = JSON.stringify(options.body);
   }
-  let res: Response;
-  try {
-    res = await fetch(path, init);
-  } catch {
-    // Network failure: the server (or the network) is unreachable.
+  const res = await fetch(path, init).catch(() => null);
+  if (!res || !fromServer(res)) {
     reportServerUnreachable();
     throw new NetworkError(t('offline.requestFailed'));
   }
-  if (isGatewayError(res.status)) reportServerUnreachable();
-  else reportServerReachable();
+  reportServerReachable();
   if (res.status === 401 && !path.startsWith('/api/auth/')) authEvents.dispatchEvent(new Event('unauthorized'));
   const text = await res.text();
   const data = text ? safeJson(text) : null;
@@ -52,69 +50,59 @@ function safeJson(text: string) {
   }
 }
 
-export interface PrinterInfo {
-  id: number;
-  name: string;
-  model: string;
-  serial: string;
-  ip: string;
-  camera: 'auto' | 'jpeg' | 'rtsps' | 'none';
-  tls_verify: number;
-  created_at: number;
+export type SendFn = (command: PrinterCommand, successMessage?: string) => Promise<boolean>;
+
+/** Send commands to a printer: failures are toasted, and `successMessage` on success. */
+export function printerCommands(printerId: number): SendFn {
+  return async (command, successMessage) => {
+    try {
+      await api(`/api/printers/${printerId}/command`, { body: command });
+      if (successMessage) toast(successMessage, 'success');
+      return true;
+    } catch (err) {
+      toastError(err);
+      return false;
+    }
+  };
 }
 
-export interface Connection {
-  status: 'connecting' | 'online' | 'offline' | 'error';
-  error: string | null;
-  lastReportAt: number;
-  /** Online but no report for a while: values may be outdated. */
-  stale: boolean;
-  /** Epoch ms of the next reconnect attempt, if one is scheduled. */
-  nextRetryAt: number | null;
-}
+/**
+ * Follow the live updates of `resource` (server-sent events at
+ * `<resource>/events`, each a JSON copy of the resource). Network trouble
+ * shows the offline banner and keeps retrying; an HTTP error (not found,
+ * signed out) is final and reported through `onError`.
+ */
+export function liveUpdates<T>(resource: string, onMessage: (data: T) => void, onError: (message: string) => void) {
+  let source: EventSource;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
 
-export interface PrinterSummary {
-  printer: PrinterInfo;
-  connection: Connection;
-  gcodeState: string | null;
-  percent: number | null;
-  remainingMinutes: number | null;
-  layer: number | null;
-  totalLayers: number | null;
-  task: string | null;
-  nozzle: number | null;
-  nozzleTarget: number | null;
-  bed: number | null;
-  bedTarget: number | null;
-  hmsCount: number;
-}
+  function connect() {
+    source = new EventSource(`${resource}/events`);
+    source.onmessage = (event) => {
+      reportServerReachable();
+      onMessage(JSON.parse(event.data));
+    };
+    source.onerror = async () => {
+      // EventSource doesn't expose the HTTP status: a plain request tells.
+      try {
+        await api(resource);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          source.close();
+          onError(err.message);
+          return;
+        }
+      }
+      // The browser retries by itself unless the stream got an HTTP error.
+      if (source.readyState === EventSource.CLOSED && !stopped) retry = setTimeout(connect, 5000);
+    };
+  }
 
-export interface PrinterDetail {
-  printer: PrinterInfo;
-  connection: Connection;
-  state: Record<string, any>;
-  modules: { name: string; sw_ver?: string; hw_ver?: string; sn?: string; project_name?: string }[];
-  log: { at: number; direction: 'in' | 'out'; command: string; payload: unknown }[];
-  camera: { kind: 'jpeg' | 'rtsps' | 'none'; error: string | null };
-  capabilities: { chamberControl: boolean };
+  connect();
+  return () => {
+    stopped = true;
+    clearTimeout(retry);
+    source.close();
+  };
 }
-
-export interface RemoteFile {
-  name: string;
-  isDirectory: boolean;
-  size: number;
-  modifiedAt: string | null;
-}
-
-export interface DiscoveredPrinter {
-  serial: string;
-  ip: string;
-  name: string;
-  modelCode: string;
-  model: string;
-  connectMode: string | null;
-  signal: string | null;
-  alreadyAdded: boolean;
-}
-
-export type SendFn = (action: string, params?: Record<string, unknown>, successMessage?: string) => Promise<boolean>;

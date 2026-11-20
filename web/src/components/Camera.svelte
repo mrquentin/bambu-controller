@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { CameraKind } from '../../../shared/printer.ts';
   import { t } from '../lib/i18n.svelte';
   import Trans from './Trans.svelte';
 
@@ -6,7 +7,7 @@
     printerId,
     kind,
     error,
-  }: { printerId: number; kind: 'jpeg' | 'rtsps' | 'none'; error: string | null } = $props();
+  }: { printerId: number; kind: CameraKind; error: string | null } = $props();
 
   let enabled = $state(localStorage.getItem('camera-autoplay') !== 'false');
   let nonce = $state(Date.now());

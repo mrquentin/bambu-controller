@@ -3,12 +3,14 @@
  * Bit layouts recovered from LanBu's BambuUtility.
  * Labels come from the message catalogs (web/src/locales).
  */
+import type { SpeedLevel } from '../../../shared/commands.ts';
+import { hmsCode, hmsSeverity, type HmsAlert } from '../../../shared/printer.ts';
 import { formatDate, formatNumber, t, type MessageKey } from './i18n.ts';
 
 type State = Record<string, any>;
 
 /** Tone per gcode_state; the label is the `state.<STATE>` message. */
-export const GCODE_STATES: Record<string, string> = {
+const GCODE_STATES: Record<string, string> = {
   IDLE: 'muted',
   PREPARE: 'info',
   SLICING: 'info',
@@ -25,7 +27,7 @@ export function gcodeStateInfo(state: string | null | undefined) {
 }
 
 /** stg_cur values 0..STAGE_COUNT-1 each have a `stage.<n>` message. */
-export const STAGE_COUNT = 36;
+const STAGE_COUNT = 36;
 
 export function stageLabel(s: State): string | null {
   const stage = s.stg_cur;
@@ -33,16 +35,16 @@ export function stageLabel(s: State): string | null {
   return stage < STAGE_COUNT ? t(`stage.${stage}` as MessageKey) : t('stage.unknown', { stage: String(stage) });
 }
 
-export const SPEED_LEVELS = [
+export const SPEED_LEVELS: { level: SpeedLevel; key: MessageKey; pct: number }[] = [
   { level: 1, key: 'speed.silent', pct: 50 },
   { level: 2, key: 'speed.standard', pct: 100 },
   { level: 3, key: 'speed.sport', pct: 124 },
   { level: 4, key: 'speed.ludicrous', pct: 166 },
-] as const;
+];
 
 /** Packed temperature: low 16 bits = current, high 16 bits = target. */
-export const packedCurrent = (v: number) => v & 0xffff;
-export const packedTarget = (v: number) => (v >>> 16) & 0xffff;
+const packedCurrent = (v: number) => v & 0xffff;
+const packedTarget = (v: number) => (v >>> 16) & 0xffff;
 
 export interface Nozzle {
   index: number | null;
@@ -95,8 +97,6 @@ export const HOME_FLAGS = {
   doorOpen: 1 << 23,
   sdCardPresent: 1 << 8,
   sdCardAbnormal: 1 << 9,
-  amsAutoSwitch: 1 << 10,
-  cameraRecording: 1 << 5,
   wiredNetwork: 1 << 18,
   xHomed: 1 << 0,
   yHomed: 1 << 1,
@@ -109,8 +109,9 @@ export function hasFlag(s: State, flag: number) {
 
 export function formatDuration(minutes: number | null | undefined) {
   if (minutes === null || minutes === undefined || minutes < 0) return '—';
-  const h = Math.floor(minutes / 60);
-  const m = Math.round(minutes % 60);
+  const rounded = Math.round(minutes);
+  const h = Math.floor(rounded / 60);
+  const m = rounded % 60;
   return h > 0
     ? t('duration.hoursMinutes', { h: String(h), m: m.toString().padStart(2, '0') })
     : t('duration.minutes', { m: String(m) });
@@ -137,29 +138,19 @@ export function formatBytes(n: number) {
   return t(units[i], { value: formatNumber(v, { minimumFractionDigits: digits, maximumFractionDigits: digits }) });
 }
 
-const hex4 = (v: number) => (v >>> 0).toString(16).toUpperCase().padStart(4, '0');
-
 /** Tone per HMS severity; the label is the `hms.severity.<n>` message. */
-export const HMS_SEVERITY: Record<number, string> = {
+const HMS_SEVERITY: Record<number, string> = {
   1: 'danger',
   2: 'danger',
   3: 'warn',
   4: 'info',
 };
 
-export function hmsInfo(item: { attr: number; code: number }) {
-  const attr = item.attr >>> 0;
-  const code = item.code >>> 0;
-  const parts = [hex4(attr >>> 16), hex4(attr & 0xffff), hex4(code >>> 16), hex4(code & 0xffff)];
-  const tone = HMS_SEVERITY[code >>> 16];
-  const severity = tone
-    ? { label: t(`hms.severity.${code >>> 16}` as MessageKey), tone }
-    : { label: t('common.unknown'), tone: 'muted' };
-  return {
-    code: parts.join('_'),
-    severity,
-    url: `https://e.bambulab.com/index.php?e=${parts.join('')}&s=device_hms&lang=en`,
-  };
+export function hmsInfo(alert: HmsAlert) {
+  const level = hmsSeverity(alert);
+  const tone = HMS_SEVERITY[level];
+  const severity = tone ? { label: t(`hms.severity.${level}` as MessageKey), tone } : { label: t('common.unknown'), tone: 'muted' };
+  return { ...hmsCode(alert), severity };
 }
 
 /** AMS humidity level ("1" = wet … "5" = very dry) as text, or null when unknown. */
@@ -172,9 +163,4 @@ export function amsHumidityLabel(level: unknown): string | null {
 export function trayColor(hex: string | undefined) {
   if (!hex || hex.length < 6) return 'transparent';
   return `#${hex.slice(0, 6)}`;
-}
-
-export function wifiLabel(signal: string | undefined) {
-  if (!signal) return '—';
-  return signal;
 }

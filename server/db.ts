@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import type { PrinterInfo } from '../shared/api.ts';
 import { config } from './config.ts';
+import { log } from './log.ts';
 import { MigrationError, migrate } from './migrations.ts';
 
 // Owner-only permissions for the data directory and files (no-op on Windows).
@@ -20,7 +22,7 @@ function assertWritable(dir: string) {
   } catch {
     const uid = process.getuid?.() ?? '?';
     const gid = process.getgid?.() ?? '?';
-    console.error(
+    log.fatal(
       [
         `Data directory "${dir}" is not writable by this process (uid ${uid}, gid ${gid}).`,
         'Give that user ownership of the host folder mapped to it, for example:',
@@ -43,33 +45,17 @@ db.exec(`
   PRAGMA secure_delete = ON;
 `);
 
-// The whole schema lives in migrations.ts (single source of truth). A failed
-// or impossible migration is not something the app can work around: report it
-// and stop before anything touches the database.
 try {
-  // Runs before Fastify's logger exists; plain stdout, unless logging is off.
-  const quiet = process.env.LOG_LEVEL?.trim() === 'silent';
-  migrate(db, { dbPath, log: quiet ? undefined : (message) => console.log(message) });
+  migrate(db, { dbPath, log: (message) => log.info(message) });
 } catch (err) {
   if (!(err instanceof MigrationError)) throw err;
-  console.error(err.message);
+  log.fatal(err.message);
   process.exit(1);
 }
 
-export type CameraSetting = 'auto' | 'jpeg' | 'rtsps' | 'none';
-
 /** Printer as used in memory: `access_code` is always the decrypted value. */
-export interface PrinterRow {
-  id: number;
-  name: string;
-  model: string;
-  serial: string;
-  ip: string;
+export interface PrinterRow extends PrinterInfo {
   access_code: string;
-  camera: CameraSetting;
-  /** 1 = verify the printer's TLS certificate against the Bambu CA (CN = serial). */
-  tls_verify: number;
-  created_at: number;
 }
 
 export interface UserRow {

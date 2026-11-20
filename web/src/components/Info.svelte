@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PrinterDetail } from '../lib/api';
+  import type { PrinterDetail } from '../../../shared/api.ts';
   import { HOME_FLAGS, hasFlag } from '../lib/bambu';
   import { formatDate, t } from '../lib/i18n.svelte';
 

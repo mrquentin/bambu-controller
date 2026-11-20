@@ -34,8 +34,6 @@ export function setLocaleSource(get: () => Locale) {
   source = get;
 }
 
-export const currentLocale = () => source();
-
 export type Params = Record<string, string | number>;
 
 const pluralRules = new Map<Locale, Intl.PluralRules>();
@@ -87,7 +85,7 @@ export function formatDate(
   return cached('d', locale, options, () => new Intl.DateTimeFormat(locale, options)).format(value);
 }
 
-export function formatRelative(value: number, unit: Intl.RelativeTimeFormatUnit, locale = source()) {
+function formatRelative(value: number, unit: Intl.RelativeTimeFormatUnit, locale = source()) {
   return cached('r', locale, undefined, () => new Intl.RelativeTimeFormat(locale, { numeric: 'auto' })).format(value, unit);
 }
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type tls from 'node:tls';
+import { config } from '../config.ts';
 
 /**
  * Printer TLS trust.
@@ -17,11 +18,27 @@ import type tls from 'node:tls';
 export const BBL_CA_FILE = path.resolve(import.meta.dirname, 'bbl-ca.pem');
 
 const cas = [fs.readFileSync(BBL_CA_FILE, 'utf8')];
-if (process.env.PRINTER_EXTRA_CA_FILE) cas.push(fs.readFileSync(process.env.PRINTER_EXTRA_CA_FILE, 'utf8'));
+if (config.printerExtraCaFile) cas.push(fs.readFileSync(config.printerExtraCaFile, 'utf8'));
 
-export interface TlsTarget {
+/** The trusted CAs as one PEM file, for tools that take a file (ffmpeg); written on first use. */
+let caFile: string | null = null;
+function caBundleFile() {
+  if (caFile) return caFile;
+  if (cas.length === 1) return (caFile = BBL_CA_FILE);
+  caFile = path.join(config.dataDir, 'printer-ca.pem');
+  fs.writeFileSync(caFile, cas.join('\n'), { mode: 0o600 });
+  return caFile;
+}
+
+interface TlsTarget {
   serial: string;
   tls_verify: number;
+}
+
+/** Where and how to reach a printer's services. */
+export interface PrinterEndpoint extends TlsTarget {
+  ip: string;
+  access_code: string;
 }
 
 /** Subset of TLS options accepted by tls.connect, mqtt.js and basic-ftp alike. */
@@ -48,6 +65,12 @@ export function printerTlsOptions(target: TlsTarget): PrinterTlsOptions {
           });
     },
   };
+}
+
+/** The same trust policy as ffmpeg options (RTSPS camera). Newer ffmpeg verifies by default, so it is always explicit. */
+export function ffmpegTlsArgs(target: TlsTarget): string[] {
+  if (!target.tls_verify) return ['-tls_verify', '0'];
+  return ['-tls_verify', '1', '-ca_file', caBundleFile(), '-verifyhost', target.serial.toUpperCase()];
 }
 
 /** Human-friendly explanation for TLS verification failures. */

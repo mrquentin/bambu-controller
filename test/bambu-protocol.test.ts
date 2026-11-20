@@ -4,15 +4,12 @@ import fs from 'node:fs';
 import { describe, it } from 'node:test';
 import { safeRemotePath } from '../server/bambu/ftps.ts';
 import { cameraKindFor, modelFromCode, printUrlFor, supportsChamberControl } from '../server/bambu/models.ts';
-import { mergeState } from '../server/bambu/printer.ts';
 import { parseSsdp } from '../server/bambu/ssdp.ts';
 import { BBL_CA_FILE, describeTlsError, printerTlsOptions } from '../server/bambu/tls.ts';
 
 describe('models', () => {
-  it('maps SSDP model codes', () => {
-    assert.equal(modelFromCode('BL-P001'), 'X1C');
-    assert.equal(modelFromCode('N2S'), 'A1');
-    assert.equal(modelFromCode('O1D'), 'H2D');
+  it('maps SSDP model codes, keeping unknown codes as the model name', () => {
+    assert.equal(modelFromCode('O1C2'), 'H2C');
     assert.equal(modelFromCode('ZZZ'), 'ZZZ');
   });
 
@@ -30,38 +27,10 @@ describe('models', () => {
     assert.equal(printUrlFor('X1C', '/cache/a.3mf'), 'file:///sdcard/cache/a.3mf');
   });
 
-  it('knows which printers have chamber heating', () => {
-    assert.equal(supportsChamberControl('X1E'), true);
-    assert.equal(supportsChamberControl('H2D'), true);
-    assert.equal(supportsChamberControl('X1C'), false);
-  });
-});
-
-describe('status merging (partial P1/A1 reports)', () => {
-  it('deep-merges objects and keeps fields not present in the patch', () => {
-    const state: any = { nozzle_temper: 20, ipcam: { timelapse: 'enable', ipcam_record: 'enable' } };
-    mergeState(state, { nozzle_temper: 200, ipcam: { timelapse: 'disable' } });
-    assert.equal(state.nozzle_temper, 200);
-    assert.deepEqual(state.ipcam, { timelapse: 'disable', ipcam_record: 'enable' });
-  });
-
-  it('replaces ordinary arrays', () => {
-    const state: any = { hms: [{ attr: 1, code: 2 }] };
-    mergeState(state, { hms: [] });
-    assert.deepEqual(state.hms, []);
-  });
-
-  it('merges AMS units and trays by id', () => {
-    const state: any = {
-      ams: {
-        ams: [{ id: '0', humidity: '4', tray: [{ id: '0', tray_type: 'PLA', remain: 80 }, { id: '1', tray_type: 'PETG' }] }],
-      },
-    };
-    mergeState(state, { ams: { ams: [{ id: '0', temp: '25', tray: [{ id: '0', remain: 75 }] }] } });
-    const unit = state.ams.ams[0];
-    assert.equal(unit.humidity, '4');
-    assert.equal(unit.temp, '25');
-    assert.deepEqual(unit.tray[0], { id: '0', tray_type: 'PLA', remain: 75 });
+  it('treats unknown models like current flagship ones', () => {
+    assert.equal(cameraKindFor('Z9', 'auto'), 'rtsps');
+    assert.equal(printUrlFor('Z9', '/a.3mf'), 'file:///sdcard/a.3mf');
+    assert.equal(supportsChamberControl('Z9'), false);
   });
 });
 

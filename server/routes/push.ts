@@ -1,17 +1,15 @@
 import type { FastifyInstance } from 'fastify';
+import { PUSH_EVENTS, type PushPreferences } from '../../shared/api.ts';
 import { audit } from '../audit.ts';
-import { requireAuth } from '../auth.ts';
 import { MAX_PUSH_ENDPOINT_LENGTH } from '../net-policy.ts';
 import {
-  PUSH_EVENTS,
   deleteSubscription,
   getVapidKeys,
   listSubscriptions,
-  parsePreferences,
   parseSubscription,
+  type BrowserSubscription,
   saveSubscription,
   sendTest,
-  setPushLogger,
   updatePreferences,
 } from '../push.ts';
 import { idParams, type IdParams } from '../validation.ts';
@@ -63,15 +61,13 @@ const preferencesBody = {
 
 /** Browser push notifications: every route acts on the current user's own devices only. */
 export async function pushRoutes(app: FastifyInstance) {
-  setPushLogger(app.log);
+  app.get('/api/push/key', async () => ({ publicKey: getVapidKeys().publicKey }));
 
-  app.get('/api/push/key', { preValidation: requireAuth }, async () => ({ publicKey: getVapidKeys().publicKey }));
+  app.get('/api/push/subscriptions', async (request) => listSubscriptions(request.user!.id));
 
-  app.get('/api/push/subscriptions', { preValidation: requireAuth }, async (request) => listSubscriptions(request.user!.id));
-
-  app.post<{ Body: { subscription: unknown; replaces?: string } }>(
+  app.post<{ Body: { subscription: BrowserSubscription; replaces?: string } }>(
     '/api/push/subscriptions',
-    { preValidation: requireAuth, schema: { body: subscribeBody }, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    { schema: { body: subscribeBody }, config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const input = await parseSubscription(request.body.subscription);
       if (typeof input === 'string') {
@@ -80,25 +76,22 @@ export async function pushRoutes(app: FastifyInstance) {
       }
       const replaces = request.body.replaces;
       const saved = saveSubscription(request.user!.id, input, request.headers['user-agent'] ?? null, replaces);
-      if (typeof saved === 'string') return reply.code(400).send({ error: saved });
       audit(request, { action: 'push.subscribe', detail: { device: saved.id, service: saved.service, renewed: Boolean(replaces) } });
       return saved;
     },
   );
 
-  app.put<{ Params: IdParams; Body: { preferences: unknown } }>(
+  app.put<{ Params: IdParams; Body: { preferences: Partial<PushPreferences> } }>(
     '/api/push/subscriptions/:id',
-    { preValidation: requireAuth, schema: { params: idParams, body: preferencesBody } },
+    { schema: { params: idParams, body: preferencesBody } },
     async (request, reply) => {
-      const prefs = parsePreferences(request.body.preferences);
-      if (typeof prefs === 'string') return reply.code(400).send({ error: prefs });
-      const saved = updatePreferences(request.user!.id, Number(request.params.id), prefs);
+      const saved = updatePreferences(request.user!.id, Number(request.params.id), request.body.preferences);
       if (!saved) return reply.code(404).send({ error: 'Device not found' });
       return saved;
     },
   );
 
-  app.delete<{ Params: IdParams }>('/api/push/subscriptions/:id', { preValidation: requireAuth, schema: { params: idParams } }, async (request, reply) => {
+  app.delete<{ Params: IdParams }>('/api/push/subscriptions/:id', { schema: { params: idParams } }, async (request, reply) => {
     const removed = deleteSubscription(request.user!.id, Number(request.params.id));
     if (!removed) return reply.code(404).send({ error: 'Device not found' });
     audit(request, { action: 'push.unsubscribe', detail: { device: removed.id, service: removed.service } });
@@ -107,7 +100,7 @@ export async function pushRoutes(app: FastifyInstance) {
 
   app.post<{ Params: IdParams }>(
     '/api/push/subscriptions/:id/test',
-    { preValidation: requireAuth, schema: { params: idParams }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { schema: { params: idParams }, config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
       const result = await sendTest(request.user!.id, Number(request.params.id));
       if (result === null) return reply.code(404).send({ error: 'Device not found' });
