@@ -4,6 +4,7 @@
   import { skipReplyError } from '../lib/skip-objects';
   import { toast } from '../lib/toast.svelte';
   import { t, type MessageKey } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
   import SkipObjects from './SkipObjects.svelte';
   import Trans from './Trans.svelte';
 
@@ -24,7 +25,13 @@
   const lights = $derived<{ node: string; mode: string }[]>(Array.isArray(s.lights_report) ? s.lights_report : []);
 
   async function stop() {
-    if (confirm(t('job.confirmStop'))) await send('stop', {}, t('job.stopRequested'));
+    const ok = await confirmAction({
+      title: t('job.confirmStopTitle'),
+      message: t('job.confirmStop', { name: s.subtask_name || s.gcode_file || t('job.title') }),
+      confirmLabel: t('job.stopPrint'),
+      danger: true,
+    });
+    if (ok) await send('stop', {}, t('job.stopRequested'));
   }
 
   // Skip objects: only while printing. Printer rejections arrive in the command log.

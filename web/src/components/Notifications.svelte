@@ -12,6 +12,7 @@
   } from '../lib/push';
   import { toast, toastError } from '../lib/toast.svelte';
   import { formatDate, formatTimeAgo, t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
   import Trans from './Trans.svelte';
 
   let { deviceName }: { deviceName: (ua: string | null) => string } = $props();
@@ -99,7 +100,13 @@
   }
 
   async function remove(device: PushDevice) {
-    if (!confirm(t('notif.confirmRemove', { device: deviceName(device.userAgent) }))) return;
+    const ok = await confirmAction({
+      title: t('notif.confirmRemoveTitle'),
+      message: t('notif.confirmRemove', { device: deviceName(device.userAgent) }),
+      confirmLabel: t('common.remove'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/push/subscriptions/${device.id}`, { method: 'DELETE' });
       await load();

@@ -3,6 +3,7 @@
   import Notifications from '../components/Notifications.svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
   import { LOCALES, LOCALE_NAMES, formatDate, formatTimeAgo, i18n, setLocale, t, type LocaleChoice } from '../lib/i18n.svelte';
 
   let { user }: { user: { id: number; username: string } } = $props();
@@ -74,7 +75,13 @@
   }
 
   async function removeUser(id: number, username: string) {
-    if (!confirm(t('settings.confirmDeleteUser', { name: username }))) return;
+    const ok = await confirmAction({
+      title: t('settings.confirmDeleteUserTitle', { name: username }),
+      message: t('settings.confirmDeleteUser'),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/users/${id}`, { method: 'DELETE' });
       loadUsers();
@@ -85,6 +92,13 @@
   }
 
   async function revoke(s: Session) {
+    const ok = await confirmAction({
+      title: t('settings.confirmSignOut'),
+      message: t('settings.confirmSignOutText', { device: browser(s.userAgent) }),
+      confirmLabel: t('settings.signOut'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/auth/sessions/${s.id}`, { method: 'DELETE' });
       loadSessions();
@@ -94,7 +108,13 @@
   }
 
   async function revokeOthers() {
-    if (!confirm(t('settings.confirmSignOutOthers'))) return;
+    const ok = await confirmAction({
+      title: t('settings.confirmSignOutOthers'),
+      message: t('settings.confirmSignOutOthersText'),
+      confirmLabel: t('settings.signOut'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api('/api/auth/sessions/revoke-others', { method: 'POST' });
       toast(t('settings.othersSignedOut'), 'success');

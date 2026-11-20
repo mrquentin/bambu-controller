@@ -124,7 +124,8 @@ export const en = {
   'editPrinter.updated': 'Printer updated',
   'editPrinter.removeTitle': 'Remove printer',
   'editPrinter.removeHint': 'Disconnects and deletes this printer from the app.',
-  'editPrinter.confirmRemove': 'Remove "{name}"? This only deletes it from this app.',
+  'editPrinter.confirmRemoveTitle': 'Remove printer?',
+  'editPrinter.confirmRemove': '"{name}" will be disconnected and removed from this app. Nothing changes on the printer itself.',
   'editPrinter.removed': 'Printer removed',
 
   // Printer page
@@ -153,7 +154,9 @@ export const en = {
   'job.resumeRequested': 'Resume requested',
   'job.pauseRequested': 'Pause requested',
   'job.stopRequested': 'Stop requested',
-  'job.confirmStop': 'Stop the current print? This cannot be undone.',
+  'job.confirmStopTitle': 'Stop the print?',
+  'job.confirmStop': '"{name}" will be cancelled. This cannot be undone.',
+  'job.stopPrint': 'Stop print',
   'job.skipObjects': 'Skip objects',
   'job.skipObjectsTitle': 'Skip parts of this print',
   'job.skipping': { one: 'Skipping {count} object', other: 'Skipping {count} objects' },
@@ -254,6 +257,8 @@ export const en = {
   'motion.disabledWhilePrinting': 'Motion controls are disabled while printing.',
   'motion.home': 'Home all axes',
   'motion.confirmHome': 'Home all axes?',
+  'motion.confirmHomeText': 'The toolhead and the bed move to their home positions.',
+  'motion.homeAction': 'Home',
   'motion.homing': 'Homing',
   'motion.zUp': 'Z+ (increase nozzle–bed distance)',
   'motion.zDown': 'Z− (decrease nozzle–bed distance)',
@@ -267,8 +272,11 @@ export const en = {
   // AMS / filament
   'ams.title': 'Filament',
   'ams.unload': 'Unload',
-  'ams.confirmLoad': 'Load this filament? The printer will heat the nozzle and swap filament.',
-  'ams.confirmUnload': 'Unload the current filament?',
+  'ams.confirmLoadTitle': 'Load filament?',
+  'ams.confirmLoad': 'The printer will heat the nozzle and swap filament.',
+  'ams.load': 'Load',
+  'ams.confirmUnloadTitle': 'Unload filament?',
+  'ams.confirmUnload': 'The printer will heat the nozzle and pull the current filament back.',
   'ams.loadRequested': 'Load requested',
   'ams.unloadRequested': 'Unload requested',
   'ams.emptySlot': 'Empty slot',
@@ -315,7 +323,8 @@ export const en = {
   'files.print': 'Print',
   'files.play': 'Play',
   'files.view': 'View',
-  'files.confirmDelete': 'Delete {name} from the printer?',
+  'files.confirmDeleteTitle': 'Delete file?',
+  'files.confirmDelete': '{name} will be deleted from the printer.',
   'files.deleted': 'File deleted',
   'files.uploaded': 'Uploaded {name}',
   'files.printStarted': 'Print started',
@@ -380,6 +389,7 @@ export const en = {
   'skip.button': { one: 'Skip {count} object', other: 'Skip {count} objects' },
   'skip.confirm': { one: 'Skip {count} object? This cannot be undone.', other: 'Skip {count} objects? This cannot be undone.' },
   'skip.confirmAll': 'That is every remaining object, the print will end.',
+  'skip.confirmTitle': 'Skip objects?',
 
   // Print history
   'history.title': 'Print history',
@@ -403,7 +413,8 @@ export const en = {
   'history.observedMidway': 'Already printing when the app first saw it: started earlier',
   'history.paused': 'paused {duration}',
   'history.deleteEntry': 'Delete from history',
-  'history.confirmDelete': 'Delete "{name}" from the history?',
+  'history.confirmDeleteTitle': 'Delete from history?',
+  'history.confirmDelete': '"{name}" will be removed from the history and statistics.',
   'history.deleted': 'Removed from history',
   'history.loadMore': 'Load more ({count} left)',
   'jobStatus.running': 'Printing',
@@ -424,6 +435,9 @@ export const en = {
   'settings.sessions': 'Active sessions',
   'settings.signOutOthers': 'Sign out other sessions',
   'settings.confirmSignOutOthers': 'Sign out all other sessions?',
+  'settings.confirmSignOutOthersText': 'Every other browser signed in to this account will have to sign in again.',
+  'settings.confirmSignOut': 'Sign out this session?',
+  'settings.confirmSignOutText': '{device} will have to sign in again.',
   'settings.othersSignedOut': 'Other sessions signed out',
   'settings.thisDevice': 'This device',
   'settings.unknownIp': 'unknown IP',
@@ -435,7 +449,8 @@ export const en = {
   'settings.since': 'since {date}',
   'settings.addUser': 'Add user',
   'settings.userCreated': 'User {name} created',
-  'settings.confirmDeleteUser': 'Delete user {name}? Their sessions are signed out immediately.',
+  'settings.confirmDeleteUserTitle': 'Delete user {name}?',
+  'settings.confirmDeleteUser': 'Their sessions are signed out immediately.',
   'settings.fullAccess': 'All users have full access to every printer.',
   'settings.securityLog': 'Security log',
   'settings.all': 'All',
@@ -466,7 +481,8 @@ export const en = {
   'notif.enabled': 'Notifications enabled on this device',
   'notif.disabled': 'Notifications turned off on this device',
   'notif.testSent': 'Test notification sent',
-  'notif.confirmRemove': 'Stop notifications on {device}?',
+  'notif.confirmRemoveTitle': 'Stop notifications?',
+  'notif.confirmRemove': '{device} will no longer receive notifications.',
   'notif.deviceMeta': 'since {date} · last delivered {when}',
   'notif.eventCount': '{count} of {total} events',
   'notif.privacy':
@@ -476,6 +492,11 @@ export const en = {
   'notif.event.paused': 'Print paused / needs attention',
   'notif.event.hms': 'Health (HMS) alerts',
   'notif.event.started': 'Print started',
+
+  // Offline banner
+  'offline.serverLost': 'Connection to the server lost — retrying…',
+  'offline.noNetwork': 'No network connection — retrying…',
+  'offline.requestFailed': "Can't reach the server. Check the connection and try again.",
 } satisfies Record<string, string | PluralMessage>;
 
 export type MessageKey = keyof typeof en;

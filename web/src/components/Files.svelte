@@ -3,6 +3,7 @@
   import { formatBytes } from '../lib/bambu';
   import { toast, toastError } from '../lib/toast.svelte';
   import { t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
   import MediaViewer, { mediaKind } from './MediaViewer.svelte';
   import Trans from './Trans.svelte';
 
@@ -55,7 +56,13 @@
   });
 
   async function remove(file: RemoteFile) {
-    if (!confirm(t('files.confirmDelete', { name: file.name }))) return;
+    const ok = await confirmAction({
+      title: t('files.confirmDeleteTitle'),
+      message: t('files.confirmDelete', { name: file.name }),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/printers/${printerId}/files?path=${q(join(path, file.name))}`, { method: 'DELETE' });
       toast(t('files.deleted'), 'success');
@@ -175,11 +182,13 @@
   <MediaViewer {printerId} dir={path} items={mediaFiles} bind:index={viewerIndex} onClose={() => (viewerIndex = null)} />
 {/if}
 
+<svelte:window onkeydown={(e) => e.key === 'Escape' && printTarget && (printTarget = null)} />
+
 {#if printTarget}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={(e) => e.target === e.currentTarget && (printTarget = null)}>
-    <div class="modal stack">
-      <h2>{t('files.startPrint')}</h2>
+    <div class="modal stack" role="dialog" aria-modal="true" aria-labelledby="print-title">
+      <h2 id="print-title">{t('files.startPrint')}</h2>
       <code class="small">{printTarget}</code>
       <label class="field">
         {t('files.plate')}

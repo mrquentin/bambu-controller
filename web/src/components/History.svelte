@@ -4,6 +4,7 @@
   import { formatMs, formatRate, jobProgress, jobStatusInfo, type HistoryStats, type PrintJob } from '../lib/history';
   import { toast, toastError } from '../lib/toast.svelte';
   import { formatDate, t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
 
   /**
    * Statistics and job list, for one printer or (without `printerId`) all of
@@ -51,7 +52,13 @@
   }
 
   async function remove(job: PrintJob) {
-    if (!confirm(t('history.confirmDelete', { name: job.task ?? t('common.untitled') }))) return;
+    const ok = await confirmAction({
+      title: t('history.confirmDeleteTitle'),
+      message: t('history.confirmDelete', { name: job.task ?? t('common.untitled') }),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/history/${job.id}`, { method: 'DELETE' });
       toast(t('history.deleted'), 'success');

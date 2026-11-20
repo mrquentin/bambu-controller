@@ -150,11 +150,13 @@
   </section>
 </div>
 
+<svelte:window onkeydown={(e) => e.key === 'Escape' && selected && !connecting && (selected = null)} />
+
 {#if selected}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={(e) => e.target === e.currentTarget && !connecting && (selected = null)}>
-    <form class="modal stack" onsubmit={connect}>
-      <h2>{t('addPrinter.connectTo', { name: selected.name })}</h2>
+    <form class="modal stack" onsubmit={connect} aria-labelledby="connect-title">
+      <h2 id="connect-title">{t('addPrinter.connectTo', { name: selected.name })}</h2>
       <span class="muted small">{selected.model} · {selected.ip} · {selected.serial}</span>
 
       <label class="field">

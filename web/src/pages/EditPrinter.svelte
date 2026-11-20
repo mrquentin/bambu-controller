@@ -4,6 +4,7 @@
   import { navigate } from '../lib/router.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
   import { t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
   import PrinterForm, { type PrinterFormValue } from '../components/PrinterForm.svelte';
 
   let { id }: { id: number } = $props();
@@ -38,7 +39,13 @@
   }
 
   async function remove() {
-    if (!confirm(t('editPrinter.confirmRemove', { name: form?.name ?? printerName }))) return;
+    const ok = await confirmAction({
+      title: t('editPrinter.confirmRemoveTitle'),
+      message: t('editPrinter.confirmRemove', { name: printerName }),
+      confirmLabel: t('common.remove'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/printers/${id}`, { method: 'DELETE' });
       toast(t('editPrinter.removed'), 'success');

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, type PrinterDetail } from '../lib/api';
+  import { ApiError, api, type PrinterDetail } from '../lib/api';
+  import { isGatewayError, reportServerReachable } from '../lib/connectivity.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
   import { t, type MessageKey } from '../lib/i18n.svelte';
   import ConnectionBadge from '../components/ConnectionBadge.svelte';
@@ -30,21 +31,40 @@
   let error = $state<string | null>(null);
 
   onMount(() => {
-    const source = new EventSource(`/api/printers/${id}/events`);
-    source.onmessage = (event) => {
-      data = JSON.parse(event.data);
-      error = null;
+    let source: EventSource;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    function connect() {
+      source = new EventSource(`/api/printers/${id}/events`);
+      source.onmessage = (event) => {
+        data = JSON.parse(event.data);
+        error = null;
+        reportServerReachable();
+      };
+      source.onerror = async () => {
+        // Distinguish "not found / logged out" from transient network errors
+        // (those show the offline banner and keep retrying).
+        try {
+          await api(`/api/printers/${id}`);
+        } catch (err) {
+          if (err instanceof ApiError && !isGatewayError(err.status)) {
+            error = err.message;
+            source.close();
+            return;
+          }
+        }
+        // The browser retries by itself unless the stream got an HTTP error.
+        if (source.readyState === EventSource.CLOSED && !stopped) retry = setTimeout(connect, 5000);
+      };
+    }
+
+    connect();
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      source.close();
     };
-    source.onerror = async () => {
-      // Distinguish "not found / logged out" from transient network errors.
-      try {
-        await api(`/api/printers/${id}`);
-      } catch (err) {
-        error = (err as Error).message;
-        source.close();
-      }
-    };
-    return () => source.close();
   });
 
   const online = $derived(data?.connection.status === 'online');

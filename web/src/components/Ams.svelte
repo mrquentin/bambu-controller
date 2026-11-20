@@ -2,6 +2,7 @@
   import type { SendFn } from '../lib/api';
   import { amsHumidityLabel, trayColor } from '../lib/bambu';
   import { t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
 
   let { state: s, online, send }: { state: Record<string, any>; online: boolean; send: SendFn } = $props();
 
@@ -14,13 +15,18 @@
   const globalTrayId = (amsId: number, trayId: number) => (amsId >= 128 ? amsId : amsId * 4 + trayId);
 
   async function load(amsId: number, trayId: number) {
-    if (confirm(t('ams.confirmLoad'))) {
-      await send('loadFilament', { tray: globalTrayId(amsId, trayId) }, t('ams.loadRequested'));
-    }
+    const ok = await confirmAction({ title: t('ams.confirmLoadTitle'), message: t('ams.confirmLoad'), confirmLabel: t('ams.load') });
+    if (ok) await send('loadFilament', { tray: globalTrayId(amsId, trayId) }, t('ams.loadRequested'));
   }
 
   async function unload() {
-    if (confirm(t('ams.confirmUnload'))) await send('unloadFilament', {}, t('ams.unloadRequested'));
+    const ok = await confirmAction({
+      title: t('ams.confirmUnloadTitle'),
+      message: t('ams.confirmUnload'),
+      confirmLabel: t('ams.unload'),
+      danger: true,
+    });
+    if (ok) await send('unloadFilament', {}, t('ams.unloadRequested'));
   }
 </script>
 

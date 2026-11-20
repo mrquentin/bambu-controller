@@ -2,6 +2,7 @@
   import type { SendFn } from '../lib/api';
   import { nozzles } from '../lib/bambu';
   import { t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
 
   let { state: s, online, send }: { state: Record<string, any>; online: boolean; send: SendFn } = $props();
 
@@ -15,7 +16,12 @@
   const jog = (axis: 'X' | 'Y' | 'Z', direction: 1 | -1) => send('jog', { axis, distance: direction * step });
 
   async function home() {
-    if (confirm(t('motion.confirmHome'))) await send('home', {}, t('motion.homing'));
+    const ok = await confirmAction({
+      title: t('motion.confirmHome'),
+      message: t('motion.confirmHomeText'),
+      confirmLabel: t('motion.homeAction'),
+    });
+    if (ok) await send('home', {}, t('motion.homing'));
   }
 </script>
 

@@ -3,6 +3,7 @@
   import { api } from '../lib/api';
   import { decodePickMap, objectAt, type JobObjects } from '../lib/skip-objects';
   import { t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
 
   let {
     printerId,
@@ -149,7 +150,13 @@
     if (!ids.length) return;
     const n = ids.length;
     const all = n >= remaining ? ` ${t('skip.confirmAll')}` : '';
-    if (!confirm(`${t('skip.confirm', { count: n })}${all}`)) return;
+    const confirmed = await confirmAction({
+      title: t('skip.confirmTitle'),
+      message: `${t('skip.confirm', { count: n })}${all}`,
+      confirmLabel: t('skip.button', { count: n }),
+      danger: true,
+    });
+    if (!confirmed) return;
     busy = true;
     const ok = await onSkip(ids);
     busy = false;
