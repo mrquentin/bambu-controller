@@ -20,6 +20,7 @@ no cloud, no account, just your printers.
 - ⊘ Skip objects of a running print: tap parts on the plate image or pick them from a list
 - ⌨ G-code console and command log, firmware info, raw status JSON
 - 🔔 Push notifications (browser / installed app) when a print finishes, fails, pauses or raises an HMS alert
+- 🌐 English and French interface, following the browser language (can be changed in Settings)
 
 The protocol details were recovered by reverse engineering the LanBu Android app; see
 [docs/PROTOCOL.md](docs/PROTOCOL.md).

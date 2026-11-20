@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SendFn } from '../lib/api';
   import { nozzles } from '../lib/bambu';
+  import { t } from '../lib/i18n.svelte';
 
   let { state: s, online, send }: { state: Record<string, any>; online: boolean; send: SendFn } = $props();
 
@@ -14,21 +15,21 @@
   const jog = (axis: 'X' | 'Y' | 'Z', direction: 1 | -1) => send('jog', { axis, distance: direction * step });
 
   async function home() {
-    if (confirm('Home all axes?')) await send('home', {}, 'Homing');
+    if (confirm(t('motion.confirmHome'))) await send('home', {}, t('motion.homing'));
   }
 </script>
 
 <section class="card stack">
   <header style="margin:0">
-    <h2>Motion</h2>
+    <h2>{t('motion.title')}</h2>
     <div class="row">
       {#each [1, 10, 50] as v}
-        <button class="small" class:active={step === v} onclick={() => (step = v)}>{v} mm</button>
+        <button class="small" class:active={step === v} onclick={() => (step = v)}>{t('unit.mm', { value: v })}</button>
       {/each}
     </div>
   </header>
 
-  {#if printing}<div class="alert warn small">Motion controls are disabled while printing.</div>{/if}
+  {#if printing}<div class="alert warn small">{t('motion.disabledWhilePrinting')}</div>{/if}
 
   <div class="pads">
     <div class="xy">
@@ -36,29 +37,29 @@
       <button onclick={() => jog('Y', 1)} {disabled} title="Y+">▲<small>Y+</small></button>
       <span></span>
       <button onclick={() => jog('X', -1)} {disabled} title="X-">◀<small>X-</small></button>
-      <button onclick={home} {disabled} title="Home all axes">⌂</button>
+      <button onclick={home} {disabled} title={t('motion.home')} aria-label={t('motion.home')}>⌂</button>
       <button onclick={() => jog('X', 1)} {disabled} title="X+">▶<small>X+</small></button>
       <span></span>
       <button onclick={() => jog('Y', -1)} {disabled} title="Y-">▼<small>Y-</small></button>
       <span></span>
     </div>
     <div class="z">
-      <button onclick={() => jog('Z', 1)} {disabled} title="Z+ (increase nozzle–bed distance)">Z+<small>apart</small></button>
-      <button onclick={() => jog('Z', -1)} {disabled} title="Z− (decrease nozzle–bed distance)">Z−<small>closer</small></button>
+      <button onclick={() => jog('Z', 1)} {disabled} title={t('motion.zUp')}>Z+<small>{t('motion.apart')}</small></button>
+      <button onclick={() => jog('Z', -1)} {disabled} title={t('motion.zDown')}>Z−<small>{t('motion.closer')}</small></button>
     </div>
   </div>
 
   <div class="stack" style="gap:6px">
     <div class="row">
-      <span class="small muted">Extruder</span>
+      <span class="small muted">{t('motion.extruder')}</span>
       <span class="spacer"></span>
-      <select bind:value={extrudeAmount} style="width:auto">
-        {#each [5, 10, 20, 50] as v}<option value={v}>{v} mm</option>{/each}
+      <select bind:value={extrudeAmount} style="width:auto" aria-label={t('motion.extruder')}>
+        {#each [5, 10, 20, 50] as v}<option value={v}>{t('unit.mm', { value: v })}</option>{/each}
       </select>
-      <button class="small" disabled={disabled || !hotEnough} onclick={() => send('extrude', { distance: -extrudeAmount })}>Retract</button>
-      <button class="small" disabled={disabled || !hotEnough} onclick={() => send('extrude', { distance: extrudeAmount })}>Extrude</button>
+      <button class="small" disabled={disabled || !hotEnough} onclick={() => send('extrude', { distance: -extrudeAmount })}>{t('motion.retract')}</button>
+      <button class="small" disabled={disabled || !hotEnough} onclick={() => send('extrude', { distance: extrudeAmount })}>{t('motion.extrude')}</button>
     </div>
-    {#if !hotEnough}<span class="muted small">Heat the nozzle above 170 °C to extrude.</span>{/if}
+    {#if !hotEnough}<span class="muted small">{t('motion.heatToExtrude')}</span>{/if}
   </div>
 </section>
 

@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { api, type PrinterSummary } from '../lib/api';
   import { formatDuration, gcodeStateInfo } from '../lib/bambu';
+  import { t } from '../lib/i18n.svelte';
   import ConnectionBadge from '../components/ConnectionBadge.svelte';
+  import Trans from '../components/Trans.svelte';
 
   let printers = $state<PrinterSummary[] | null>(null);
   let error = $state<string | null>(null);
@@ -25,26 +27,28 @@
 
 <div class="container stack">
   <div class="row">
-    <h1>Printers</h1>
+    <h1>{t('nav.printers')}</h1>
     <span class="spacer"></span>
-    <a class="btn history-link" href="#/history">History</a>
+    <a class="btn history-link" href="#/history">{t('nav.history')}</a>
     <a class="btn primary" href="#/add">
-      + Add printer
+      + {t('printers.add')}
     </a>
   </div>
 
   {#if error}<div class="alert error">{error}</div>{/if}
 
   {#if printers === null}
-    <div class="empty">Loading…</div>
+    <div class="empty">{t('common.loading')}</div>
   {:else if printers.length === 0}
     <div class="card empty">
-      <p>No printers yet.</p>
+      <p>{t('printers.none')}</p>
       <p class="small">
-        Enable <b>LAN Only Mode</b> (and <b>Developer Mode</b> on recent firmware) on the printer, note the access code,
-        then add it here.
+        <Trans key="printers.emptyHint">
+          {#snippet lanMode()}<b>{t('term.lanOnlyMode')}</b>{/snippet}
+          {#snippet devMode()}<b>{t('term.developerMode')}</b>{/snippet}
+        </Trans>
       </p>
-      <a class="btn" href="#/add">Add your first printer</a>
+      <a class="btn" href="#/add">{t('printers.addFirst')}</a>
     </div>
   {:else}
     <div class="grid list">
@@ -63,26 +67,26 @@
           {#if p.connection.status === 'online'}
             <div class="row">
               <span class="badge plain tone-{st.tone}">{st.label}</span>
-              {#if p.hmsCount > 0}<span class="badge plain tone-warn">{p.hmsCount} alert{p.hmsCount > 1 ? 's' : ''}</span>{/if}
+              {#if p.hmsCount > 0}<span class="badge plain tone-warn">{t('printers.alerts', { count: p.hmsCount })}</span>{/if}
             </div>
             {#if p.gcodeState === 'RUNNING' || p.gcodeState === 'PAUSE' || p.gcodeState === 'PREPARE'}
               <div class="stack" style="gap:6px">
                 <div class="row small">
-                  <span class="task">{p.task ?? 'Print job'}</span>
+                  <span class="task">{p.task ?? t('job.title')}</span>
                   <span class="spacer"></span>
-                  <b>{p.percent ?? 0}%</b>
+                  <b>{t('unit.percent', { value: p.percent ?? 0 })}</b>
                 </div>
                 <div class="progress"><div style="width:{p.percent ?? 0}%"></div></div>
                 <div class="row small muted">
-                  <span>Layer {p.layer ?? '—'}/{p.totalLayers ?? '—'}</span>
+                  <span>{t('job.layer', { layer: p.layer ?? '—', total: p.totalLayers ?? '—' })}</span>
                   <span class="spacer"></span>
-                  <span>{formatDuration(p.remainingMinutes)} left</span>
+                  <span>{t('job.left', { time: formatDuration(p.remainingMinutes) })}</span>
                 </div>
               </div>
             {/if}
             <div class="row small muted temps">
-              <span>Nozzle <b>{p.nozzle ?? '—'}°</b>{p.nozzleTarget ? ` / ${p.nozzleTarget}°` : ''}</span>
-              <span>Bed <b>{p.bed ?? '—'}°</b>{p.bedTarget ? ` / ${p.bedTarget}°` : ''}</span>
+              <span>{t('temp.nozzle')} <b>{p.nozzle ?? '—'}°</b>{p.nozzleTarget ? ` / ${p.nozzleTarget}°` : ''}</span>
+              <span>{t('temp.bed')} <b>{p.bed ?? '—'}°</b>{p.bedTarget ? ` / ${p.bedTarget}°` : ''}</span>
             </div>
           {:else if p.connection.error}
             <div class="alert error small">{p.connection.error}</div>

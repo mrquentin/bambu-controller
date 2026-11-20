@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, authEvents } from './lib/api';
+  import { t } from './lib/i18n.svelte';
   import { match, navigate, route } from './lib/router.svelte';
   import { toasts } from './lib/toast.svelte';
   import Login from './pages/Login.svelte';
@@ -51,7 +52,7 @@
 </script>
 
 {#if auth.loading}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('common.loading')}</div>
 {:else if !auth.user}
   <div class="corner"><ThemeSwitcher /></div>
   <Login setup={auth.setupRequired} onAuthenticated={refreshAuth} />
@@ -63,10 +64,10 @@
     </a>
     <span class="spacer"></span>
     <ThemeSwitcher />
-    <a class="btn small nav-history" href="#/history">History</a>
-    <a class="btn small" href="#/settings">Settings</a>
+    <a class="btn small nav-history" href="#/history">{t('nav.history')}</a>
+    <a class="btn small" href="#/settings">{t('nav.settings')}</a>
     <span class="muted small user">{auth.user.username}</span>
-    <button class="small ghost" onclick={logout}>Log out</button>
+    <button class="small ghost" onclick={logout}>{t('nav.logout')}</button>
   </nav>
 
   {#if route.path === '/'}
@@ -82,7 +83,7 @@
   {:else if detail}
     {#key detail.id}<PrinterDetail id={Number(detail.id)} tab={(detail.tab ?? 'control') as 'control' | 'files' | 'history' | 'info'} />{/key}
   {:else}
-    <div class="empty">Page not found. <a href="#/">Back to printers</a></div>
+    <div class="empty">{t('app.notFound')} <a href="#/">{t('app.backToPrinters')}</a></div>
   {/if}
 {/if}
 

@@ -12,6 +12,8 @@
 </script>
 
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
+
   let {
     printerId,
     dir,
@@ -58,16 +60,16 @@
       <b class="title" title={full}>{name}</b>
       <span class="muted small">{index + 1} / {items.length}</span>
       <span class="spacer"></span>
-      <button class="small" onclick={prev} disabled={index === 0} title="Previous">◀</button>
-      <button class="small" onclick={next} disabled={index === items.length - 1} title="Next">▶</button>
-      <a class="btn small" href="/api/printers/{printerId}/files/download?path={encodeURIComponent(full)}" title="Download">⬇</a>
-      <button class="small" onclick={onClose} title="Close (Esc)">✕</button>
+      <button class="small" onclick={prev} disabled={index === 0} title={t('media.previous')} aria-label={t('media.previous')}>◀</button>
+      <button class="small" onclick={next} disabled={index === items.length - 1} title={t('media.next')} aria-label={t('media.next')}>▶</button>
+      <a class="btn small" href="/api/printers/{printerId}/files/download?path={encodeURIComponent(full)}" title={t('common.download')} aria-label={t('common.download')}>⬇</a>
+      <button class="small" onclick={onClose} title={t('common.closeEsc')} aria-label={t('common.close')}>✕</button>
     </header>
 
     <div class="stage">
       {#key src}
         {#if failed}
-          <div class="muted">Couldn't play this file. Try downloading it instead.</div>
+          <div class="muted">{t('media.failed')}</div>
         {:else if kind === 'video'}
           <!-- svelte-ignore a11y_media_has_caption -->
           <video {src} {poster} controls autoplay playsinline preload="metadata" onerror={() => (failed = true)}></video>
@@ -78,7 +80,7 @@
     </div>
 
     {#if TRANSCODED.test(name)}
-      <p class="muted small note">This format is converted to MP4 while it streams, so seeking isn't available.</p>
+      <p class="muted small note">{t('media.transcoded')}</p>
     {/if}
   </div>
 </div>

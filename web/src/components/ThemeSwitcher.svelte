@@ -1,20 +1,22 @@
 <script lang="ts">
   import { setTheme, theme, type ThemeChoice } from '../lib/theme.svelte';
+  import { t, type MessageKey } from '../lib/i18n.svelte';
 
-  const options: { value: ThemeChoice; icon: string; label: string }[] = [
-    { value: 'light', icon: '☀', label: 'Light' },
-    { value: 'system', icon: '◐', label: 'System' },
-    { value: 'dark', icon: '☾', label: 'Dark' },
+  const options: { value: ThemeChoice; icon: string; label: MessageKey }[] = [
+    { value: 'light', icon: '☀', label: 'theme.light' },
+    { value: 'system', icon: '◐', label: 'theme.system' },
+    { value: 'dark', icon: '☾', label: 'theme.dark' },
   ];
 </script>
 
-<div class="switch" role="radiogroup" aria-label="Theme">
+<div class="switch" role="radiogroup" aria-label={t('theme.label')}>
   {#each options as o}
     <button
       role="radio"
       aria-checked={theme.choice === o.value}
       class:on={theme.choice === o.value}
-      title="{o.label} theme"
+      title={t('theme.title', { theme: t(o.label) })}
+      aria-label={t(o.label)}
       onclick={() => setTheme(o.value)}
     >
       {o.icon}

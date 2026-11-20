@@ -1,13 +1,14 @@
 <script lang="ts">
   import type { Connection } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
 
   let { connection }: { connection: Connection } = $props();
 
   const map = {
-    online: { label: 'Online', tone: 'ok' },
-    connecting: { label: 'Connecting', tone: 'info' },
-    offline: { label: 'Offline', tone: 'muted' },
-    error: { label: 'Error', tone: 'danger' },
+    online: { label: 'connection.online', tone: 'ok' },
+    connecting: { label: 'connection.connecting', tone: 'info' },
+    offline: { label: 'connection.offline', tone: 'muted' },
+    error: { label: 'connection.error', tone: 'danger' },
   } as const;
 
   const stale = $derived(connection.status === 'online' && connection.stale);
@@ -27,13 +28,19 @@
   const info = $derived.by(() => {
     const base = map[connection.status];
     if (stale) {
-      const age = connection.lastReportAt ? `Last update ${seconds(now - connection.lastReportAt)}s ago` : 'No update yet';
-      return { label: 'Stale', tone: 'warn', title: age };
+      const age = connection.lastReportAt
+        ? t('connection.lastUpdate', { seconds: seconds(now - connection.lastReportAt) })
+        : t('connection.noUpdate');
+      return { label: t('connection.stale'), tone: 'warn', title: age };
     }
     if (retrying) {
-      return { label: `Reconnecting in ${seconds(connection.nextRetryAt! - now)}s`, tone: base.tone, title: connection.error ?? '' };
+      return {
+        label: t('connection.reconnectingIn', { seconds: seconds(connection.nextRetryAt! - now) }),
+        tone: base.tone,
+        title: connection.error ?? '',
+      };
     }
-    return { ...base, title: connection.error ?? '' };
+    return { label: t(base.label), tone: base.tone, title: connection.error ?? '' };
   });
 </script>
 

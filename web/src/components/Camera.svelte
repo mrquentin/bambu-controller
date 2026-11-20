@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { t } from '../lib/i18n.svelte';
+  import Trans from './Trans.svelte';
+
   let {
     printerId,
     kind,
@@ -38,24 +41,24 @@
 
 <section class="card">
   <header>
-    <h2>Camera</h2>
+    <h2>{t('camera.title')}</h2>
     <div class="row">
       {#if kind !== 'none'}
         <span class="muted small">{kind === 'jpeg' ? 'JPEG · port 6000' : 'RTSPS · port 322'}</span>
-        <a class="btn small" href="/api/printers/{printerId}/camera/snapshot" download="snapshot.jpg">Snapshot</a>
-        <button class="small" onclick={fullscreen} disabled={!enabled}>Fullscreen</button>
-        <button class="small" onclick={toggle}>{enabled ? 'Stop' : 'Start'}</button>
+        <a class="btn small" href="/api/printers/{printerId}/camera/snapshot" download="snapshot.jpg">{t('camera.snapshot')}</a>
+        <button class="small" onclick={fullscreen} disabled={!enabled}>{t('camera.fullscreen')}</button>
+        <button class="small" onclick={toggle}>{enabled ? t('camera.stop') : t('camera.start')}</button>
       {/if}
     </div>
   </header>
 
   <div class="frame" bind:this={frame}>
     {#if kind === 'none'}
-      <div class="placeholder muted">Camera disabled in printer settings</div>
+      <div class="placeholder muted">{t('camera.disabled')}</div>
     {:else if enabled && !hidden}
       <!-- The placeholder sits underneath; the first decoded frame paints over it. -->
       <div class="placeholder muted">
-        {error ?? (kind === 'rtsps' ? 'Starting stream (ffmpeg)…' : 'Connecting to camera…')}
+        {error ?? (kind === 'rtsps' ? t('camera.startingStream') : t('camera.connecting'))}
       </div>
       <img
         src="/api/printers/{printerId}/camera/stream?t={nonce}"
@@ -63,12 +66,12 @@
         onerror={() => setTimeout(reload, 3000)}
       />
     {:else}
-      <button class="placeholder ghost" onclick={toggle}>▶ Start live view</button>
+      <button class="placeholder ghost" onclick={toggle}>▶ {t('camera.startLive')}</button>
     {/if}
   </div>
   {#if kind === 'rtsps'}
     <p class="muted small" style="margin:8px 0 0">
-      X1-series: enable <i>Settings → Network → LAN Mode Liveview</i> on the printer.
+      <Trans key="camera.liveviewHint">{#snippet path()}<i>{t('camera.liveviewPath')}</i>{/snippet}</Trans>
     </p>
   {/if}
 </section>

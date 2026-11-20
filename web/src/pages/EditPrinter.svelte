@@ -3,6 +3,7 @@
   import { api, type PrinterDetail } from '../lib/api';
   import { navigate } from '../lib/router.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
+  import { t } from '../lib/i18n.svelte';
   import PrinterForm, { type PrinterFormValue } from '../components/PrinterForm.svelte';
 
   let { id }: { id: number } = $props();
@@ -32,15 +33,15 @@
 
   async function save(value: PrinterFormValue) {
     await api(`/api/printers/${id}`, { method: 'PUT', body: value });
-    toast('Printer updated', 'success');
+    toast(t('editPrinter.updated'), 'success');
     navigate(`/printer/${id}`);
   }
 
   async function remove() {
-    if (!confirm(`Remove "${form?.name}"? This only deletes it from this app.`)) return;
+    if (!confirm(t('editPrinter.confirmRemove', { name: form?.name ?? printerName }))) return;
     try {
       await api(`/api/printers/${id}`, { method: 'DELETE' });
-      toast('Printer removed', 'success');
+      toast(t('editPrinter.removed'), 'success');
       navigate('/');
     } catch (err) {
       toastError(err);
@@ -51,25 +52,25 @@
 <div class="container stack">
   <div class="row">
     <div class="stack" style="gap:0">
-      <nav class="crumbs" aria-label="Breadcrumb">
-        <a href="#/">Printers</a><span>›</span>
-        <a href="#/printer/{id}">{printerName || 'Printer'}</a><span>›</span>
+      <nav class="crumbs" aria-label={t('common.breadcrumb')}>
+        <a href="#/">{t('nav.printers')}</a><span>›</span>
+        <a href="#/printer/{id}">{printerName || t('editPrinter.printer')}</a><span>›</span>
       </nav>
-      <h1>Edit printer</h1>
+      <h1>{t('editPrinter.title')}</h1>
     </div>
   </div>
   {#if error}<div class="alert error">{error}</div>{/if}
   {#if form}
     <section class="card">
-      <PrinterForm bind:value={form} editing submitLabel="Save changes" onSubmit={save} />
+      <PrinterForm bind:value={form} editing submitLabel={t('editPrinter.save')} onSubmit={save} />
     </section>
     <section class="card row">
       <div class="stack" style="gap:2px">
-        <h2>Remove printer</h2>
-        <span class="muted small">Disconnects and deletes this printer from the app.</span>
+        <h2>{t('editPrinter.removeTitle')}</h2>
+        <span class="muted small">{t('editPrinter.removeHint')}</span>
       </div>
       <span class="spacer"></span>
-      <button class="danger" onclick={remove}>Remove</button>
+      <button class="danger" onclick={remove}>{t('common.remove')}</button>
     </section>
   {/if}
 </div>

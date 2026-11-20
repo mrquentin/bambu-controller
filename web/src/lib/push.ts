@@ -1,11 +1,12 @@
 /** Browser side of push notifications (see web/public/sw.js and server/push.ts). */
 
+/** Event kinds in display order; each is labelled by the `notif.event.<key>` message. */
 export const PUSH_EVENTS = [
-  { key: 'finished', label: 'Print finished' },
-  { key: 'failed', label: 'Print failed or cancelled' },
-  { key: 'paused', label: 'Print paused / needs attention' },
-  { key: 'hms', label: 'Health (HMS) alerts' },
-  { key: 'started', label: 'Print started' },
+  { key: 'finished' },
+  { key: 'failed' },
+  { key: 'paused' },
+  { key: 'hms' },
+  { key: 'started' },
 ] as const;
 
 export type PushEventKind = (typeof PUSH_EVENTS)[number]['key'];
