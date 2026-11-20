@@ -17,8 +17,15 @@
  * s start · p pause (runout) · r resume · f finish · x fail · h HMS alert ·
  * z stop/resume reporting (the MQTT socket stays open, like a printer whose
  * Wi-Fi dropped or that went to sleep: the app flags it stale, then reconnects) · ? help.
+ *
+ * For automated tests:
+ *   FAKE_DETERMINISTIC=1  no random progress or temperature jitter
+ *   FAKE_CONTROL_PORT=n   plain HTTP on HOST:n — GET /health, POST /reset (back to
+ *                         the initial running "Benchy" job and storage), POST /key/<k>
+ *                         (same as typing <k> + Enter)
  */
 import { spawn } from 'node:child_process';
+import http from 'node:http';
 import net from 'node:net';
 import readline from 'node:readline';
 import tls from 'node:tls';
@@ -31,6 +38,8 @@ const SERIAL = process.env.FAKE_SERIAL ?? '01P00A000000001';
 const ACCESS_CODE = process.env.FAKE_ACCESS_CODE ?? '12345678';
 const HOST = process.env.FAKE_HOST ?? '127.0.0.1';
 const FTP_PORT = Number(process.env.FAKE_FTP_PORT ?? 990);
+const DETERMINISTIC = process.env.FAKE_DETERMINISTIC === '1';
+const CONTROL_PORT = Number(process.env.FAKE_CONTROL_PORT ?? 0);
 
 const pems = await selfsigned.generate([{ name: 'commonName', value: SERIAL }], { keySize: 2048 });
 const tlsOptions = { key: pems.private, cert: pems.cert };
@@ -84,6 +93,8 @@ const state: Record<string, any> = {
     ],
   },
 };
+
+const initialState = structuredClone(state);
 
 // ---------------------------------------------------------------- MQTT
 
@@ -217,7 +228,8 @@ broker.on('publish', (packet, client) => {
 
 // Partial updates once per second, like a P1/A1.
 setInterval(() => {
-  const approach = (cur: number, target: number) => cur + (target - cur) * 0.3 + (Math.random() - 0.5) * 0.4;
+  const jitter = () => (DETERMINISTIC ? 0 : (Math.random() - 0.5) * 0.4);
+  const approach = (cur: number, target: number) => cur + (target - cur) * 0.3 + jitter();
   state.nozzle_temper = Math.round(approach(state.nozzle_temper, state.nozzle_target_temper || 25) * 10) / 10;
   state.bed_temper = Math.round(approach(state.bed_temper, state.bed_target_temper || 25) * 10) / 10;
   const patch: Record<string, unknown> = {
@@ -225,7 +237,7 @@ setInterval(() => {
     nozzle_temper: state.nozzle_temper,
     bed_temper: state.bed_temper,
   };
-  if (state.gcode_state === 'RUNNING' && Math.random() < 0.2) {
+  if (state.gcode_state === 'RUNNING' && !DETERMINISTIC && Math.random() < 0.2) {
     state.mc_percent = Math.min(100, state.mc_percent + 1);
     state.layer_num = Math.min(state.total_layer_num, state.layer_num + 1);
     state.mc_remaining_time = Math.max(0, state.mc_remaining_time - 1);
@@ -325,11 +337,48 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 
 // ---------------------------------------------------------------- storage (FTPS)
 
-const files = new Map<string, Buffer>([['/cache/Benchy.gcode.3mf', buildSample3mf()]]);
+const initialFiles = (): [string, Buffer][] => [['/cache/Benchy.gcode.3mf', buildSample3mf()]];
+const files = new Map<string, Buffer>(initialFiles());
 startFakeFtps({ host: HOST, port: FTP_PORT, password: ACCESS_CODE, tlsOptions, files }).then(
   () => console.log(`FTPS         ${HOST}:${FTP_PORT}`),
   (err) => console.warn(`FTPS not available on port ${FTP_PORT}: ${err.message} (set FAKE_FTP_PORT)`),
 );
+
+// ---------------------------------------------------------------- test control (HTTP)
+
+/** Back to the initial state: running "Benchy" job, sample storage, no pending demo print. */
+function reset() {
+  silent = false;
+  if (nextDemo) clearTimeout(nextDemo);
+  nextDemo = null;
+  for (const key of Object.keys(state)) delete state[key];
+  Object.assign(state, structuredClone(initialState));
+  files.clear();
+  for (const [path, data] of initialFiles()) files.set(path, data);
+  publish({ print: state });
+}
+
+if (CONTROL_PORT) {
+  http
+    .createServer((req, res) => {
+      const reply = (status: number, body: string) => res.writeHead(status, { 'content-type': 'text/plain' }).end(body);
+      const key = /^\/key\/(.)$/.exec(req.url ?? '')?.[1];
+      if (req.method === 'GET' && req.url === '/health') return reply(200, 'ok');
+      if (req.method === 'POST' && req.url === '/reset') {
+        reset();
+        return reply(200, 'reset');
+      }
+      // Only the object's own keyboard actions: a key from the URL must never
+      // reach Object.prototype members.
+      const action = key && Object.hasOwn(actions, key) ? actions[key] : undefined;
+      if (req.method === 'POST' && key && typeof action === 'function') {
+        action();
+        return reply(200, key);
+      }
+      reply(404, 'not found');
+    })
+    .listen(CONTROL_PORT, HOST, () => console.log(`Control HTTP ${HOST}:${CONTROL_PORT}`));
+}
 
 console.log(`Fake printer serial=${SERIAL} access code=${ACCESS_CODE}`);
 console.log(HELP);

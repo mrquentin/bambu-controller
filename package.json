@@ -16,7 +16,8 @@
     "icons": "node scripts/build-icons.ts",
     "sbom": "npm sbom --sbom-format=cyclonedx --omit=dev > sbom.json",
     "audit": "npm audit --audit-level=high",
-    "test": "node --import ./test/setup.ts --test --test-reporter=spec \"test/**/*.test.ts\""
+    "test": "node --import ./test/setup.ts --test --test-reporter=spec \"test/**/*.test.ts\"",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.5",
@@ -28,6 +29,7 @@
     "mqtt": "5.16.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.0",
     "@resvg/resvg-js": "2.6.2",
     "@semantic-release/exec": "7.1.0",
     "@sveltejs/vite-plugin-svelte": "7.3.1",

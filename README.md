@@ -98,6 +98,9 @@ npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, cod
                        # queues demo prints by itself (FAKE_AUTO_PRINT=0 to disable)
                        # type z + Enter to stop/resume its reports (stale-data test)
 npm test               # unit + API tests
+npm run test:e2e       # Playwright end-to-end tests: builds the app, starts it and the
+                       # fake printer (`npx playwright install chromium` once; the fake printer needs
+                       # ports 8883/6000/990 free)
 npm run check          # type-check server and frontend
 ```
 

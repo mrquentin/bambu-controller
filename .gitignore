@@ -9,3 +9,5 @@ data/
 !server/bambu/bbl-ca.pem
 *.key
 sbom.json
+test-results/
+playwright-report/
