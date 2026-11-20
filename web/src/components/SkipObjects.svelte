@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
   import { decodePickMap, objectAt, type JobObjects } from '../lib/skip-objects';
+  import { t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
 
   let {
     printerId,
@@ -147,8 +149,14 @@
     const ids = selected.filter((id) => !skipped.has(id));
     if (!ids.length) return;
     const n = ids.length;
-    const all = n >= remaining ? ' That is every remaining object, the print will end.' : '';
-    if (!confirm(`Skip ${n} object${n === 1 ? '' : 's'}? This cannot be undone.${all}`)) return;
+    const all = n >= remaining ? ` ${t('skip.confirmAll')}` : '';
+    const confirmed = await confirmAction({
+      title: t('skip.confirmTitle'),
+      message: `${t('skip.confirm', { count: n })}${all}`,
+      confirmLabel: t('skip.button', { count: n }),
+      danger: true,
+    });
+    if (!confirmed) return;
     busy = true;
     const ok = await onSkip(ids);
     busy = false;
@@ -164,25 +172,25 @@
 <div class="modal-backdrop" onclick={(e) => e.target === e.currentTarget && onClose()}>
   <div class="modal stack skip" role="dialog" aria-modal="true" aria-labelledby="skip-title">
     <header class="row">
-      <h2 id="skip-title">Skip objects</h2>
+      <h2 id="skip-title">{t('job.skipObjects')}</h2>
       <span class="spacer"></span>
-      {#if job}<span class="muted small">Plate {job.plate}</span>{/if}
-      <button class="small ghost" onclick={onClose} title="Close (Esc)" aria-label="Close">✕</button>
+      {#if job}<span class="muted small">{t('skip.plate', { plate: job.plate })}</span>{/if}
+      <button class="small ghost" onclick={onClose} title={t('common.closeEsc')} aria-label={t('common.close')}>✕</button>
     </header>
 
     {#if loading && !job}
-      <div class="muted small">Reading the project file from the printer…</div>
+      <div class="muted small">{t('skip.reading')}</div>
     {:else if error}
       <div class="alert error small">{error}</div>
       <div class="row">
         <span class="spacer"></span>
-        <button class="small" onclick={() => load(true)} disabled={loading}>{loading ? 'Retrying…' : 'Retry'}</button>
+        <button class="small" onclick={() => load(true)} disabled={loading}>{loading ? t('skip.retrying') : t('skip.retry')}</button>
       </div>
     {:else if job}
       {#if showImage}
         <div class="plate" class:plain={!job.hasPlateImage || plateFailed}>
           {#if job.hasPlateImage && !plateFailed}
-            <img src="{base}/plate.png" alt="Plate {job.plate}" onerror={() => (plateFailed = true)} draggable="false" />
+            <img src="{base}/plate.png" alt={t('skip.plate', { plate: job.plate })} onerror={() => (plateFailed = true)} draggable="false" />
           {/if}
           {#if pick}
             <!-- The checkbox list below is the keyboard / screen reader path. -->
@@ -198,11 +206,11 @@
         </div>
         <div class="muted small hint">
           {#if pick}
-            {hovered !== null ? nameOf(hovered) : 'Tap objects on the plate or tick them below.'}
+            {hovered !== null ? nameOf(hovered) : t('skip.tapHint')}
           {:else if job.hasPickMap && !pickError}
-            Loading the object map…
+            {t('skip.loadingMap')}
           {:else}
-            No usable object map in this project: pick the objects from the list.
+            {t('skip.noMap')}
           {/if}
         </div>
       {/if}
@@ -219,20 +227,20 @@
                 onchange={() => toggle(o.id)}
               />
               <span class="name">{o.name}</span>
-              <span class="muted small">{done ? 'skipped' : `#${o.id}`}</span>
+              <span class="muted small">{done ? t('skip.skipped') : `#${o.id}`}</span>
             </label>
           </li>
         {/each}
       </ul>
 
-      {#if !running}<div class="alert warn small">The print is no longer running.</div>{/if}
+      {#if !running}<div class="alert warn small">{t('skip.notRunning')}</div>{/if}
 
       <div class="row">
-        <span class="muted small">{selected.length} selected · {remaining} remaining</span>
+        <span class="muted small">{t('skip.summary', { selected: selected.length, remaining })}</span>
         <span class="spacer"></span>
-        <button onclick={onClose}>Cancel</button>
+        <button onclick={onClose}>{t('common.cancel')}</button>
         <button class="danger" onclick={confirmSkip} disabled={!online || !running || busy || selected.length === 0}>
-          Skip {selected.length || ''} object{selected.length === 1 ? '' : 's'}
+          {selected.length ? t('skip.button', { count: selected.length }) : t('job.skipObjects')}
         </button>
       </div>
     {/if}

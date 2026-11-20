@@ -3,6 +3,8 @@
   import { api } from '../lib/api';
   import { formatMs, formatRate, jobProgress, jobStatusInfo, type HistoryStats, type PrintJob } from '../lib/history';
   import { toast, toastError } from '../lib/toast.svelte';
+  import { formatDate, t } from '../lib/i18n.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
 
   /**
    * Statistics and job list, for one printer or (without `printerId`) all of
@@ -50,10 +52,16 @@
   }
 
   async function remove(job: PrintJob) {
-    if (!confirm(`Delete "${job.task ?? 'Untitled'}" from the history?`)) return;
+    const ok = await confirmAction({
+      title: t('history.confirmDeleteTitle'),
+      message: t('history.confirmDelete', { name: job.task ?? t('common.untitled') }),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/history/${job.id}`, { method: 'DELETE' });
-      toast('Removed from history', 'success');
+      toast(t('history.deleted'), 'success');
       jobs = jobs.filter((j) => j.id !== job.id);
       load();
     } catch (err) {
@@ -73,50 +81,50 @@
     untrack(load); // load() reads `jobs`, which must not become a dependency
   });
 
-  const when = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const when = (at: number) => formatDate(at, { dateStyle: 'medium', timeStyle: 'short' });
   const active = (job: PrintJob) => job.status === 'running' || job.status === 'paused';
 </script>
 
 {#if error}
   <div class="alert error">{error}</div>
 {:else if !stats}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('common.loading')}</div>
 {:else}
   <div class="stack history">
     <section class="tiles">
       <div class="card tile">
-        <span class="muted small">Prints</span>
+        <span class="muted small">{t('history.prints')}</span>
         <strong>{stats.total}</strong>
       </div>
       <div class="card tile">
-        <span class="muted small">Success rate</span>
+        <span class="muted small">{t('history.successRate')}</span>
         <strong>{formatRate(stats.successRate)}</strong>
-        <span class="muted small">{stats.byStatus.finished} finished · {stats.byStatus.failed} failed</span>
+        <span class="muted small">{t('history.finishedFailed', { finished: stats.byStatus.finished, failed: stats.byStatus.failed })}</span>
       </div>
       <div class="card tile">
-        <span class="muted small">Print time</span>
+        <span class="muted small">{t('history.printTime')}</span>
         <strong>{formatMs(stats.printTimeMs)}</strong>
       </div>
       <div class="card tile">
-        <span class="muted small">Interrupted</span>
+        <span class="muted small">{t('history.interrupted')}</span>
         <strong>{stats.byStatus.interrupted}</strong>
-        <span class="muted small">outcome unknown</span>
+        <span class="muted small">{t('history.outcomeUnknown')}</span>
       </div>
     </section>
 
     {#if printerId === undefined && stats.printers.length > 1}
       <section class="card stack">
-        <header style="margin:0"><h2>Per printer</h2></header>
+        <header style="margin:0"><h2>{t('history.perPrinter')}</h2></header>
         <table class="per-printer">
           <thead>
-            <tr><th>Printer</th><th>Prints</th><th>Success</th><th>Print time</th></tr>
+            <tr><th>{t('history.printer')}</th><th>{t('history.prints')}</th><th>{t('history.success')}</th><th>{t('history.printTime')}</th></tr>
           </thead>
           <tbody>
             {#each stats.printers as p (p.printerId ?? `name:${p.printerName}`)}
               <tr>
                 <td>
                   {#if p.printerId !== null}<a href="#/printer/{p.printerId}/history">{p.printerName}</a>
-                  {:else}{p.printerName} <span class="muted small">(removed)</span>{/if}
+                  {:else}{p.printerName} <span class="muted small">{t('history.removedPrinter')}</span>{/if}
                 </td>
                 <td>{p.total}</td>
                 <td>{formatRate(p.successRate)}</td>
@@ -130,38 +138,36 @@
 
     <section class="card stack">
       <header style="margin:0">
-        <h2>Jobs</h2>
-        <button class="small" onclick={load}>Reload</button>
+        <h2>{t('history.jobs')}</h2>
+        <button class="small" onclick={load}>{t('common.reload')}</button>
       </header>
       {#if jobs.length === 0}
-        <p class="muted small" style="margin:0">
-          No prints recorded yet. Jobs are recorded while the app is running and connected to the printer.
-        </p>
+        <p class="muted small" style="margin:0">{t('history.none')}</p>
       {:else}
         <table class="jobs">
           <thead>
-            <tr><th>Job</th><th>Status</th><th>Started</th><th>Duration</th><th>Layers</th><th></th></tr>
+            <tr><th>{t('history.job')}</th><th>{t('history.status')}</th><th>{t('history.started')}</th><th>{t('history.duration')}</th><th>{t('history.layers')}</th><th></th></tr>
           </thead>
           <tbody>
             {#each jobs as job (job.id)}
               {@const st = jobStatusInfo(job.status)}
               <tr>
                 <td class="task">
-                  {job.task ?? 'Untitled'}
+                  {job.task ?? t('common.untitled')}
                   {#if printerId === undefined}<div class="muted small">{job.printerName}</div>{/if}
                 </td>
                 <td><span class="badge tone-{st.tone}">{st.label}</span></td>
-                <td class="small" data-label="Started" title={job.observedMidway ? 'Already printing when the app first saw it: started earlier' : undefined}>
+                <td class="small" data-label={t('history.started')} title={job.observedMidway ? t('history.observedMidway') : undefined}>
                   {job.observedMidway ? '≤ ' : ''}{when(job.startedAt)}
                 </td>
-                <td class="small" data-label="Duration">
+                <td class="small" data-label={t('history.duration')}>
                   {job.observedMidway ? '≥ ' : ''}{formatMs(job.durationMs)}
-                  {#if job.pausedMs >= 60_000}<div class="muted small">paused {formatMs(job.pausedMs)}</div>{/if}
+                  {#if job.pausedMs >= 60_000}<div class="muted small">{t('history.paused', { duration: formatMs(job.pausedMs) })}</div>{/if}
                 </td>
-                <td class="small" data-label="Layers">{jobProgress(job)}</td>
+                <td class="small" data-label={t('history.layers')}>{jobProgress(job)}</td>
                 <td class="actions">
                   {#if !active(job)}
-                    <button class="small ghost" onclick={() => remove(job)} aria-label="Delete from history" title="Delete from history">✕</button>
+                    <button class="small ghost" onclick={() => remove(job)} aria-label={t('history.deleteEntry')} title={t('history.deleteEntry')}>✕</button>
                   {/if}
                 </td>
               </tr>
@@ -169,7 +175,7 @@
           </tbody>
         </table>
         {#if jobs.length < total}
-          <button class="small" onclick={loadMore} disabled={loadingMore}>Load more ({total - jobs.length} left)</button>
+          <button class="small" onclick={loadMore} disabled={loadingMore}>{t('history.loadMore', { count: total - jobs.length })}</button>
         {/if}
       {/if}
     </section>
@@ -244,6 +250,10 @@
     }
     .jobs td[data-label]::before {
       content: attr(data-label) ': ';
+    }
+    /* French typography: narrow no-break space before the colon. */
+    .jobs td[data-label]:lang(fr)::before {
+      content: attr(data-label) '\202F: ';
     }
     .jobs td[data-label] > div {
       display: inline;

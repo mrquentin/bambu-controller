@@ -1,5 +1,6 @@
 <script lang="ts">
   import { hmsInfo } from '../lib/bambu';
+  import { t } from '../lib/i18n.svelte';
 
   let { state: s }: { state: Record<string, any> } = $props();
 
@@ -9,7 +10,7 @@
 {#if items.length > 0}
   <section class="card stack">
     <header style="margin:0">
-      <h2>Health alerts (HMS)</h2>
+      <h2>{t('hms.title')}</h2>
       <span class="badge plain tone-warn">{items.length}</span>
     </header>
     {#each items as item}
@@ -18,7 +19,7 @@
         <span class="badge plain tone-{info.severity.tone}">{info.severity.label}</span>
         <code>HMS_{info.code}</code>
         <span class="spacer"></span>
-        <a class="small" href={info.url} target="_blank" rel="noreferrer">Look up ↗</a>
+        <a class="small" href={info.url} target="_blank" rel="noreferrer">{t('hms.lookUp')} ↗</a>
       </div>
     {/each}
   </section>

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, type PrinterDetail } from '../lib/api';
+  import { ApiError, api, type PrinterDetail } from '../lib/api';
+  import { isGatewayError, reportServerReachable } from '../lib/connectivity.svelte';
   import { toast, toastError } from '../lib/toast.svelte';
+  import { t, type MessageKey } from '../lib/i18n.svelte';
   import ConnectionBadge from '../components/ConnectionBadge.svelte';
   import Camera from '../components/Camera.svelte';
   import JobCard from '../components/JobCard.svelte';
@@ -18,32 +20,51 @@
   type Tab = 'control' | 'files' | 'history' | 'info';
   let { id, tab }: { id: number; tab: Tab } = $props();
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'control', label: 'Control' },
-    { id: 'files', label: 'Files' },
-    { id: 'history', label: 'History' },
-    { id: 'info', label: 'Info & console' },
+  const tabs: { id: Tab; label: MessageKey }[] = [
+    { id: 'control', label: 'printer.tabControl' },
+    { id: 'files', label: 'printer.tabFiles' },
+    { id: 'history', label: 'printer.tabHistory' },
+    { id: 'info', label: 'printer.tabInfo' },
   ];
 
   let data = $state<PrinterDetail | null>(null);
   let error = $state<string | null>(null);
 
   onMount(() => {
-    const source = new EventSource(`/api/printers/${id}/events`);
-    source.onmessage = (event) => {
-      data = JSON.parse(event.data);
-      error = null;
+    let source: EventSource;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
+
+    function connect() {
+      source = new EventSource(`/api/printers/${id}/events`);
+      source.onmessage = (event) => {
+        data = JSON.parse(event.data);
+        error = null;
+        reportServerReachable();
+      };
+      source.onerror = async () => {
+        // Distinguish "not found / logged out" from transient network errors
+        // (those show the offline banner and keep retrying).
+        try {
+          await api(`/api/printers/${id}`);
+        } catch (err) {
+          if (err instanceof ApiError && !isGatewayError(err.status)) {
+            error = err.message;
+            source.close();
+            return;
+          }
+        }
+        // The browser retries by itself unless the stream got an HTTP error.
+        if (source.readyState === EventSource.CLOSED && !stopped) retry = setTimeout(connect, 5000);
+      };
+    }
+
+    connect();
+    return () => {
+      stopped = true;
+      clearTimeout(retry);
+      source.close();
     };
-    source.onerror = async () => {
-      // Distinguish "not found / logged out" from transient network errors.
-      try {
-        await api(`/api/printers/${id}`);
-      } catch (err) {
-        error = (err as Error).message;
-        source.close();
-      }
-    };
-    return () => source.close();
   });
 
   const online = $derived(data?.connection.status === 'online');
@@ -64,34 +85,32 @@
 {#if error}
   <div class="container"><div class="alert error">{error}</div></div>
 {:else if !data}
-  <div class="empty">Connecting…</div>
+  <div class="empty">{t('printer.connecting')}</div>
 {:else}
   <div class="container stack">
     <div class="row head">
       <div class="stack title" style="gap:0">
-        <nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Printers</a><span>›</span></nav>
+        <nav class="crumbs" aria-label={t('common.breadcrumb')}><a href="#/">{t('nav.printers')}</a><span>›</span></nav>
         <h1>{data.printer.name}</h1>
         <span class="muted small">{data.printer.model} · {data.printer.ip} · <span class="mono">{data.printer.serial}</span></span>
       </div>
       <span class="spacer"></span>
       <ConnectionBadge connection={data.connection} />
-      <button class="small" onclick={() => send('refresh', {}, 'Requested full status')} disabled={!online}>Refresh</button>
-      <a class="btn small" href="#/printer/{id}/edit">Edit</a>
+      <button class="small" onclick={() => send('refresh', {}, t('printer.refreshRequested'))} disabled={!online}>{t('printer.refresh')}</button>
+      <a class="btn small" href="#/printer/{id}/edit">{t('common.edit')}</a>
     </div>
 
     {#if data.connection.status !== 'online' && data.connection.error}
       <div class="alert error">{data.connection.error}</div>
     {:else if data.connection.status !== 'online'}
-      <div class="alert warn">
-        Not connected to the printer yet. Make sure it is powered on, in LAN mode, and reachable at {data.printer.ip}.
-      </div>
+      <div class="alert warn">{t('printer.notConnected', { ip: data.printer.ip })}</div>
     {/if}
 
-    <nav class="tabs" aria-label="Printer sections">
-      {#each tabs as t}
-        <a href="#/printer/{id}{t.id === 'control' ? '' : `/${t.id}`}" class:current={tab === t.id} aria-current={tab === t.id ? 'page' : undefined}>
-          {t.label}
-          {#if t.id === 'control' && Array.isArray(s.hms) && s.hms.length > 0}<span class="dot" title="Health alerts"></span>{/if}
+    <nav class="tabs" aria-label={t('printer.sections')}>
+      {#each tabs as tb}
+        <a href="#/printer/{id}{tb.id === 'control' ? '' : `/${tb.id}`}" class:current={tab === tb.id} aria-current={tab === tb.id ? 'page' : undefined}>
+          {t(tb.label)}
+          {#if tb.id === 'control' && Array.isArray(s.hms) && s.hms.length > 0}<span class="dot" title={t('printer.healthAlerts')}></span>{/if}
         </a>
       {/each}
     </nav>

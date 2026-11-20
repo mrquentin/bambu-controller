@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
 
   let { setup, onAuthenticated }: { setup: boolean; onAuthenticated: () => void } = $props();
 
@@ -13,7 +14,7 @@
     event.preventDefault();
     error = null;
     if (setup && password !== confirm) {
-      error = 'Passwords do not match';
+      error = t('login.passwordMismatch');
       return;
     }
     busy = true;
@@ -34,20 +35,20 @@
       <img src="/favicon.svg" alt="" width="36" height="36" />
       <div>
         <h1>Bambu Controller</h1>
-        <div class="muted small">{setup ? 'Create the first account' : 'Sign in to continue'}</div>
+        <div class="muted small">{setup ? t('login.createFirst') : t('login.signInToContinue')}</div>
       </div>
     </div>
 
     {#if setup}
-      <div class="alert info">No account exists yet. The account you create now can manage printers and users.</div>
+      <div class="alert info">{t('login.noAccount')}</div>
     {/if}
 
     <label class="field">
-      Username
+      {t('common.username')}
       <input bind:value={username} autocomplete="username" required minlength="3" />
     </label>
     <label class="field">
-      Password
+      {t('common.password')}
       <input
         type="password"
         bind:value={password}
@@ -57,11 +58,9 @@
       />
     </label>
     {#if setup}
-      <span class="muted small">
-        At least 10 characters with 3 of: lowercase, uppercase, digits, symbols — or a passphrase of 16+ characters.
-      </span>
+      <span class="muted small">{t('auth.passwordHint')}</span>
       <label class="field">
-        Confirm password
+        {t('login.confirmPassword')}
         <input type="password" bind:value={confirm} autocomplete="new-password" required />
       </label>
     {/if}
@@ -69,7 +68,7 @@
     {#if error}<div class="alert error">{error}</div>{/if}
 
     <button class="primary" type="submit" disabled={busy}>
-      {busy ? 'Please wait…' : setup ? 'Create account' : 'Sign in'}
+      {busy ? t('login.pleaseWait') : setup ? t('login.createAccount') : t('login.signIn')}
     </button>
   </form>
 </div>

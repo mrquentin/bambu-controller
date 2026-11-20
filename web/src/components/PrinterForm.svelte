@@ -13,6 +13,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
+  import Trans from './Trans.svelte';
 
   let {
     value = $bindable(),
@@ -51,42 +53,42 @@
 <form class="stack" onsubmit={submit}>
   <div class="grid two">
     <label class="field">
-      Name
-      <input bind:value={value.name} required maxlength="64" placeholder="My printer" />
+      {t('common.name')}
+      <input bind:value={value.name} required maxlength="64" placeholder={t('form.namePlaceholder')} />
     </label>
     <label class="field">
-      Model
+      {t('form.model')}
       <select bind:value={value.model} required>
-        <option value="" disabled>Select…</option>
+        <option value="" disabled>{t('form.select')}</option>
         {#each models as m}<option value={m}>{m}</option>{/each}
         {#if value.model && !models.includes(value.model)}<option value={value.model}>{value.model}</option>{/if}
       </select>
     </label>
     <label class="field">
-      IP address
+      {t('form.ip')}
       <input bind:value={value.ip} required placeholder="192.168.1.50" />
     </label>
     <label class="field">
-      Serial number
+      {t('form.serial')}
       <input bind:value={value.serial} required class="mono" placeholder="01S00A000000000" />
     </label>
     <label class="field">
-      Access code
+      {t('form.accessCode')}
       <input
         bind:value={value.accessCode}
         required={!editing}
         class="mono"
         autocomplete="off"
-        placeholder={editing ? 'Leave blank to keep current' : '8 characters, from the printer screen'}
+        placeholder={editing ? t('form.accessCodeKeep') : t('form.accessCodeNew')}
       />
     </label>
     <label class="field">
-      Camera
+      {t('form.camera')}
       <select bind:value={value.camera}>
-        <option value="auto">Auto (by model)</option>
-        <option value="jpeg">JPEG stream (port 6000 — A1 / P1)</option>
-        <option value="rtsps">RTSPS (port 322 — X1 / H2 / P2S)</option>
-        <option value="none">Disabled</option>
+        <option value="auto">{t('form.cameraAuto')}</option>
+        <option value="jpeg">{t('form.cameraJpeg')}</option>
+        <option value="rtsps">{t('form.cameraRtsps')}</option>
+        <option value="none">{t('form.cameraNone')}</option>
       </select>
     </label>
   </div>
@@ -94,19 +96,21 @@
   <label class="row small">
     <input type="checkbox" bind:checked={value.tlsVerify} />
     <span>
-      Verify printer certificate <span class="muted">(recommended — checks it is signed by Bambu Lab and matches the serial)</span>
+      {t('form.verifyCert')} <span class="muted">{t('form.verifyCertHint')}</span>
     </span>
   </label>
 
   <p class="muted small">
-    The access code and serial number are on the printer: <i>Settings → Network / LAN only mode</i> and
-    <i>Settings → Device</i>. The access code changes whenever LAN mode is toggled.
+    <Trans key="form.where">
+      {#snippet network()}<i>{t('form.whereNetwork')}</i>{/snippet}
+      {#snippet device()}<i>{t('form.whereDevice')}</i>{/snippet}
+    </Trans>
   </p>
 
   {#if error}<div class="alert error">{error}</div>{/if}
 
   <div class="row">
-    <button class="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : submitLabel}</button>
+    <button class="primary" type="submit" disabled={busy}>{busy ? t('form.saving') : submitLabel}</button>
   </div>
 </form>
 

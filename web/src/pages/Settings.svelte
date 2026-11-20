@@ -3,6 +3,8 @@
   import Notifications from '../components/Notifications.svelte';
   import { api } from '../lib/api';
   import { toast, toastError } from '../lib/toast.svelte';
+  import { confirmAction } from '../lib/confirm.svelte';
+  import { LOCALES, LOCALE_NAMES, formatDate, formatTimeAgo, i18n, setLocale, t, type LocaleChoice } from '../lib/i18n.svelte';
 
   let { user }: { user: { id: number; username: string } } = $props();
 
@@ -23,9 +25,6 @@
     outcome: 'success' | 'failure' | 'blocked';
     detail: Record<string, unknown> | null;
   }
-
-  const PASSWORD_HINT =
-    'At least 10 characters with 3 of: lowercase, uppercase, digits, symbols — or a passphrase of 16+ characters.';
 
   let users = $state<{ id: number; username: string; created_at: number }[]>([]);
   let sessions = $state<Session[]>([]);
@@ -50,11 +49,11 @@
 
   async function changePassword(event: SubmitEvent) {
     event.preventDefault();
-    if (pw.next !== pw.confirm) return toast('New passwords do not match', 'error');
+    if (pw.next !== pw.confirm) return toast(t('settings.newPasswordMismatch'), 'error');
     try {
       await api('/api/auth/password', { body: { current: pw.current, next: pw.next } });
       pw = { current: '', next: '', confirm: '' };
-      toast('Password changed. Other sessions were signed out.', 'success');
+      toast(t('settings.passwordChanged'), 'success');
       loadSessions();
       loadAudit();
     } catch (err) {
@@ -66,7 +65,7 @@
     event.preventDefault();
     try {
       await api('/api/users', { body: newUser });
-      toast(`User ${newUser.username} created`, 'success');
+      toast(t('settings.userCreated', { name: newUser.username }), 'success');
       newUser = { username: '', password: '' };
       loadUsers();
       loadAudit();
@@ -76,7 +75,13 @@
   }
 
   async function removeUser(id: number, username: string) {
-    if (!confirm(`Delete user ${username}? Their sessions are signed out immediately.`)) return;
+    const ok = await confirmAction({
+      title: t('settings.confirmDeleteUserTitle', { name: username }),
+      message: t('settings.confirmDeleteUser'),
+      confirmLabel: t('common.delete'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/users/${id}`, { method: 'DELETE' });
       loadUsers();
@@ -87,6 +92,13 @@
   }
 
   async function revoke(s: Session) {
+    const ok = await confirmAction({
+      title: t('settings.confirmSignOut'),
+      message: t('settings.confirmSignOutText', { device: browser(s.userAgent) }),
+      confirmLabel: t('settings.signOut'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/auth/sessions/${s.id}`, { method: 'DELETE' });
       loadSessions();
@@ -96,23 +108,29 @@
   }
 
   async function revokeOthers() {
-    if (!confirm('Sign out all other sessions?')) return;
+    const ok = await confirmAction({
+      title: t('settings.confirmSignOutOthers'),
+      message: t('settings.confirmSignOutOthersText'),
+      confirmLabel: t('settings.signOut'),
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api('/api/auth/sessions/revoke-others', { method: 'POST' });
-      toast('Other sessions signed out', 'success');
+      toast(t('settings.othersSignedOut'), 'success');
       loadSessions();
     } catch (err) {
       toastError(err);
     }
   }
 
-  const when = (t: number) => (t ? new Date(t).toLocaleString() : '—');
+  const when = (at: number) => (at ? formatDate(at) : '—');
 
   function browser(ua: string | null) {
-    if (!ua) return 'Unknown device';
-    const b = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    if (!ua) return t('settings.unknownDevice');
+    const b = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : t('settings.browser');
     const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
-    return os ? `${b} on ${os}` : b;
+    return os ? t('settings.browserOn', { browser: b, os }) : b;
   }
 
   const detailText = (d: AuditRow['detail']) =>
@@ -122,28 +140,38 @@
 <div class="container stack narrow">
   <div class="row">
     <div class="stack" style="gap:0">
-      <nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Printers</a><span>›</span></nav>
-      <h1>Settings</h1>
+      <nav class="crumbs" aria-label={t('common.breadcrumb')}><a href="#/">{t('nav.printers')}</a><span>›</span></nav>
+      <h1>{t('nav.settings')}</h1>
     </div>
   </div>
+
+  <section class="card row">
+    <label class="field language">
+      {t('settings.language')}
+      <select value={i18n.choice} onchange={(e) => setLocale(e.currentTarget.value as LocaleChoice)}>
+        <option value="auto">{t('settings.languageAuto')}</option>
+        {#each LOCALES as l}<option value={l} lang={l}>{LOCALE_NAMES[l]}</option>{/each}
+      </select>
+    </label>
+  </section>
 
   <Notifications deviceName={browser} />
 
   <section class="card">
-    <header><h2>Change password</h2></header>
+    <header><h2>{t('settings.changePassword')}</h2></header>
     <form class="stack" onsubmit={changePassword}>
-      <label class="field">Current password<input type="password" bind:value={pw.current} autocomplete="current-password" required /></label>
-      <label class="field">New password<input type="password" bind:value={pw.next} autocomplete="new-password" minlength="10" required /></label>
-      <label class="field">Confirm new password<input type="password" bind:value={pw.confirm} autocomplete="new-password" required /></label>
-      <span class="muted small">{PASSWORD_HINT}</span>
-      <div><button class="primary">Change password</button></div>
+      <label class="field">{t('settings.currentPassword')}<input type="password" bind:value={pw.current} autocomplete="current-password" required /></label>
+      <label class="field">{t('settings.newPassword')}<input type="password" bind:value={pw.next} autocomplete="new-password" minlength="10" required /></label>
+      <label class="field">{t('settings.confirmNewPassword')}<input type="password" bind:value={pw.confirm} autocomplete="new-password" required /></label>
+      <span class="muted small">{t('auth.passwordHint')}</span>
+      <div><button class="primary">{t('settings.changePassword')}</button></div>
     </form>
   </section>
 
   <section class="card stack">
     <header style="margin:0">
-      <h2>Active sessions</h2>
-      <button class="small" onclick={revokeOthers} disabled={sessions.length < 2}>Sign out other sessions</button>
+      <h2>{t('settings.sessions')}</h2>
+      <button class="small" onclick={revokeOthers} disabled={sessions.length < 2}>{t('settings.signOutOthers')}</button>
     </header>
     <table class="stacked">
       <tbody>
@@ -151,12 +179,12 @@
           <tr>
             <td>
               {browser(s.userAgent)}
-              {#if s.current}<span class="badge plain tone-ok">This device</span>{/if}
-              <div class="muted small">{s.ip ?? 'unknown IP'} · signed in {when(s.createdAt)}</div>
+              {#if s.current}<span class="badge plain tone-ok">{t('settings.thisDevice')}</span>{/if}
+              <div class="muted small">{s.ip ?? t('settings.unknownIp')} · {t('settings.signedIn', { when: when(s.createdAt) })}</div>
             </td>
-            <td class="muted small">active {when(s.lastSeenAt)}</td>
+            <td class="muted small" title={when(s.lastSeenAt)}>{t('settings.active', { when: formatTimeAgo(s.lastSeenAt) })}</td>
             <td style="text-align:right">
-              {#if !s.current}<button class="small danger" onclick={() => revoke(s)}>Sign out</button>{/if}
+              {#if !s.current}<button class="small danger" onclick={() => revoke(s)}>{t('settings.signOut')}</button>{/if}
             </td>
           </tr>
         {/each}
@@ -165,37 +193,37 @@
   </section>
 
   <section class="card stack">
-    <header style="margin:0"><h2>Users</h2></header>
+    <header style="margin:0"><h2>{t('settings.users')}</h2></header>
     <table class="stacked">
       <tbody>
         {#each users as u (u.id)}
           <tr>
-            <td>{u.username} {#if u.id === user.id}<span class="muted small">(you)</span>{/if}</td>
-            <td class="muted small">since {new Date(u.created_at).toLocaleDateString()}</td>
+            <td>{u.username} {#if u.id === user.id}<span class="muted small">{t('settings.you')}</span>{/if}</td>
+            <td class="muted small">{t('settings.since', { date: formatDate(u.created_at, { dateStyle: 'medium' }) })}</td>
             <td style="text-align:right">
-              {#if u.id !== user.id}<button class="small danger" onclick={() => removeUser(u.id, u.username)}>Delete</button>{/if}
+              {#if u.id !== user.id}<button class="small danger" onclick={() => removeUser(u.id, u.username)}>{t('common.delete')}</button>{/if}
             </td>
           </tr>
         {/each}
       </tbody>
     </table>
     <form class="row" onsubmit={addUser}>
-      <input placeholder="Username" bind:value={newUser.username} required minlength="3" autocomplete="off" />
-      <input type="password" placeholder="Password" bind:value={newUser.password} required minlength="10" autocomplete="new-password" />
-      <button>Add user</button>
+      <input placeholder={t('common.username')} aria-label={t('common.username')} bind:value={newUser.username} required minlength="3" autocomplete="off" />
+      <input type="password" placeholder={t('common.password')} aria-label={t('common.password')} bind:value={newUser.password} required minlength="10" autocomplete="new-password" />
+      <button>{t('settings.addUser')}</button>
     </form>
-    <p class="muted small" style="margin:0">{PASSWORD_HINT} All users have full access to every printer.</p>
+    <p class="muted small" style="margin:0">{t('auth.passwordHint')} {t('settings.fullAccess')}</p>
   </section>
 
   <section class="card stack">
     <header style="margin:0">
-      <h2>Security log</h2>
+      <h2>{t('settings.securityLog')}</h2>
       <div class="row">
-        <button class="small" class:active={auditFilter === 'all'} onclick={() => (auditFilter = 'all')}>All</button>
+        <button class="small" class:active={auditFilter === 'all'} onclick={() => (auditFilter = 'all')}>{t('settings.all')}</button>
         <button class="small" class:active={auditFilter === 'problems'} onclick={() => (auditFilter = 'problems')}>
-          Failures
+          {t('settings.failures')}
         </button>
-        <button class="small" onclick={loadAudit}>Reload</button>
+        <button class="small" onclick={loadAudit}>{t('common.reload')}</button>
       </div>
     </header>
     <div class="log">
@@ -206,22 +234,22 @@
               <td class="nowrap muted small">{when(a.at)}</td>
               <td>
                 <code class="small">{a.action}</code>
-                {#if a.outcome !== 'success'}<span class="badge plain tone-{a.outcome === 'blocked' ? 'danger' : 'warn'}">{a.outcome}</span>{/if}
+                {#if a.outcome !== 'success'}<span class="badge plain tone-{a.outcome === 'blocked' ? 'danger' : 'warn'}">{t(`settings.outcome.${a.outcome}`)}</span>{/if}
                 <div class="muted small">{a.username ?? '—'} · {a.ip ?? '—'}{a.detail ? ` · ${detailText(a.detail)}` : ''}</div>
               </td>
             </tr>
           {:else}
-            <tr><td class="muted small">Nothing logged yet.</td></tr>
+            <tr><td class="muted small">{t('settings.nothingLogged')}</td></tr>
           {/each}
         </tbody>
       </table>
     </div>
-    <p class="muted small" style="margin:0">Last 300 events; kept for 90 days (AUDIT_RETENTION_DAYS).</p>
+    <p class="muted small" style="margin:0">{t('settings.auditRetention', { env: 'AUDIT_RETENTION_DAYS' })}</p>
   </section>
 
   <footer class="muted small about">
     Bambu Controller {version ? `v${version}` : ''} ·
-    <a href="https://github.com/mrquentin/bambu-controller" target="_blank" rel="noreferrer">source</a>
+    <a href="https://github.com/mrquentin/bambu-controller" target="_blank" rel="noreferrer">{t('settings.source')}</a>
   </footer>
 </div>
 

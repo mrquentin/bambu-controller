@@ -3,7 +3,9 @@
   import { api, type DiscoveredPrinter } from '../lib/api';
   import { navigate } from '../lib/router.svelte';
   import { toast } from '../lib/toast.svelte';
+  import { t } from '../lib/i18n.svelte';
   import PrinterForm, { type PrinterFormValue } from '../components/PrinterForm.svelte';
+  import Trans from '../components/Trans.svelte';
 
   let discovered = $state<DiscoveredPrinter[]>([]);
   let scanning = $state(false);
@@ -77,7 +79,7 @@
           tlsVerify,
         },
       });
-      toast(`Connected to ${name}`, 'success');
+      toast(t('addPrinter.connected', { name }), 'success');
       navigate(`/printer/${id}`);
     } catch (err) {
       connectError = (err as Error).message;
@@ -88,7 +90,7 @@
 
   async function saveManual(value: PrinterFormValue) {
     const { id } = await api<{ id: number }>('/api/printers', { body: { ...value, skipTest } });
-    toast('Printer added', 'success');
+    toast(t('addPrinter.added'), 'success');
     navigate(`/printer/${id}`);
   }
 </script>
@@ -96,15 +98,15 @@
 <div class="container stack narrow">
   <div class="row">
     <div class="stack" style="gap:0">
-      <nav class="crumbs" aria-label="Breadcrumb"><a href="#/">Printers</a><span>›</span></nav>
-      <h1>Add printer</h1>
+      <nav class="crumbs" aria-label={t('common.breadcrumb')}><a href="#/">{t('nav.printers')}</a><span>›</span></nav>
+      <h1>{t('printers.add')}</h1>
     </div>
   </div>
 
   <section class="card stack">
     <header style="margin:0">
-      <h2>Printers on your network</h2>
-      <button class="small" onclick={scan} disabled={scanning}>{scanning ? 'Scanning…' : 'Scan again'}</button>
+      <h2>{t('addPrinter.onNetwork')}</h2>
+      <button class="small" onclick={scan} disabled={scanning}>{scanning ? t('addPrinter.scanning') : t('addPrinter.scanAgain')}</button>
     </header>
 
     {#if scanError}<div class="alert error">{scanError}</div>{/if}
@@ -118,48 +120,47 @@
             {p.model} · <span class="mono">{p.ip}</span> · <span class="mono">{p.serial}</span>
           </span>
           {#if p.connectMode && p.connectMode !== 'lan'}
-            <span class="small tone-warn">Cloud mode: enable LAN Only Mode (and Developer Mode) on the printer.</span>
+            <span class="small tone-warn">{t('addPrinter.cloudMode')}</span>
           {/if}
         </div>
         <span class="spacer"></span>
         {#if p.alreadyAdded}
-          <span class="badge plain">Already added</span>
+          <span class="badge plain">{t('addPrinter.alreadyAdded')}</span>
         {:else}
-          <button class="primary" onclick={() => choose(p)}>Connect</button>
+          <button class="primary" onclick={() => choose(p)}>{t('addPrinter.connect')}</button>
         {/if}
       </div>
     {/each}
 
     {#if scanning && discovered.length === 0}
-      <div class="searching muted"><span class="spinner"></span> Looking for printers (a few seconds)…</div>
+      <div class="searching muted"><span class="spinner"></span> {t('addPrinter.looking')}</div>
     {:else if scanned && !scanning && discovered.length === 0}
-      <div class="muted small">
-        No printers found. Make sure the printer is on, connected to the same network, and in LAN mode — or add it
-        manually below. (In Docker, discovery needs host networking.)
-      </div>
+      <div class="muted small">{t('addPrinter.noneFound')}</div>
     {/if}
   </section>
 
   <section class="card stack">
     <button class="ghost manual-toggle" onclick={() => (showManual = !showManual)}>
-      {showManual ? '▾' : '▸'} Add manually (IP address, serial, access code)
+      {showManual ? '▾' : '▸'} {t('addPrinter.manual')}
     </button>
     {#if showManual}
-      <PrinterForm bind:value={form} submitLabel="Add printer" onSubmit={saveManual} />
-      <label class="row small muted"><input type="checkbox" bind:checked={skipTest} /> Save without checking the connection</label>
+      <PrinterForm bind:value={form} submitLabel={t('printers.add')} onSubmit={saveManual} />
+      <label class="row small muted"><input type="checkbox" bind:checked={skipTest} /> {t('addPrinter.skipTest')}</label>
     {/if}
   </section>
 </div>
 
+<svelte:window onkeydown={(e) => e.key === 'Escape' && selected && !connecting && (selected = null)} />
+
 {#if selected}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="modal-backdrop" onclick={(e) => e.target === e.currentTarget && !connecting && (selected = null)}>
-    <form class="modal stack" onsubmit={connect}>
-      <h2>Connect to {selected.name}</h2>
+    <form class="modal stack" onsubmit={connect} aria-labelledby="connect-title">
+      <h2 id="connect-title">{t('addPrinter.connectTo', { name: selected.name })}</h2>
       <span class="muted small">{selected.model} · {selected.ip} · {selected.serial}</span>
 
       <label class="field">
-        Access code
+        {t('form.accessCode')}
         <input
           bind:this={codeInput}
           bind:value={accessCode}
@@ -174,11 +175,11 @@
         />
       </label>
       <p class="muted small" style="margin:0">
-        Shown on the printer's screen under <i>Settings → Network</i> (LAN Only Mode / Access Code).
+        <Trans key="addPrinter.codeHint">{#snippet path()}<i>{t('addPrinter.codePath')}</i>{/snippet}</Trans>
       </p>
 
       <label class="field">
-        Name
+        {t('common.name')}
         <input bind:value={name} maxlength="64" disabled={connecting} />
       </label>
 
@@ -187,15 +188,15 @@
       {#if !tlsVerify || /certificate/i.test(connectError ?? '')}
         <label class="row small">
           <input type="checkbox" bind:checked={tlsVerify} disabled={connecting} />
-          Verify printer certificate (recommended)
+          {t('addPrinter.verifyCert')}
         </label>
       {/if}
 
       <div class="row">
         <span class="spacer"></span>
-        <button type="button" onclick={() => (selected = null)} disabled={connecting}>Cancel</button>
+        <button type="button" onclick={() => (selected = null)} disabled={connecting}>{t('common.cancel')}</button>
         <button class="primary" disabled={connecting || accessCode.trim().length !== 8}>
-          {#if connecting}<span class="spinner"></span> Checking…{:else}Connect{/if}
+          {#if connecting}<span class="spinner"></span> {t('addPrinter.checking')}{:else}{t('addPrinter.connect')}{/if}
         </button>
       </div>
     </form>

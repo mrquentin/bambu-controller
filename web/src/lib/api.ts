@@ -1,3 +1,6 @@
+import { isGatewayError, reportServerReachable, reportServerUnreachable } from './connectivity.svelte';
+import { t } from './i18n.svelte';
+
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -5,6 +8,9 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+
+/** The request never got an HTTP response (offline, server down, …). */
+export class NetworkError extends Error {}
 
 /** Fired when any request comes back 401 so the app can show the login screen. */
 export const authEvents = new EventTarget();
@@ -21,7 +27,16 @@ export async function api<T = any>(path: string, options: { method?: string; bod
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
     init.body = JSON.stringify(options.body);
   }
-  const res = await fetch(path, init);
+  let res: Response;
+  try {
+    res = await fetch(path, init);
+  } catch {
+    // Network failure: the server (or the network) is unreachable.
+    reportServerUnreachable();
+    throw new NetworkError(t('offline.requestFailed'));
+  }
+  if (isGatewayError(res.status)) reportServerUnreachable();
+  else reportServerReachable();
   if (res.status === 401 && !path.startsWith('/api/auth/')) authEvents.dispatchEvent(new Event('unauthorized'));
   const text = await res.text();
   const data = text ? safeJson(text) : null;
@@ -52,6 +67,10 @@ export interface Connection {
   status: 'connecting' | 'online' | 'offline' | 'error';
   error: string | null;
   lastReportAt: number;
+  /** Online but no report for a while: values may be outdated. */
+  stale: boolean;
+  /** Epoch ms of the next reconnect attempt, if one is scheduled. */
+  nextRetryAt: number | null;
 }
 
 export interface PrinterSummary {

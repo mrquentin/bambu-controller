@@ -140,7 +140,7 @@ pre {
   border-bottom: 1px solid var(--border);
   background: var(--bg-2);
   position: sticky;
-  top: 0;
+  top: var(--offline-banner-height, 0px); /* under the "connection lost" banner when shown */
   z-index: 10;
 }
 

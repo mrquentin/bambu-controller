@@ -20,6 +20,7 @@ no cloud, no account, just your printers.
 - ⊘ Skip objects of a running print: tap parts on the plate image or pick them from a list
 - ⌨ G-code console and command log, firmware info, raw status JSON
 - 🔔 Push notifications (browser / installed app) when a print finishes, fails, pauses or raises an HMS alert
+- 🌐 English and French interface, following the browser language (can be changed in Settings)
 
 The protocol details were recovered by reverse engineering the LanBu Android app; see
 [docs/PROTOCOL.md](docs/PROTOCOL.md).
@@ -95,7 +96,11 @@ In Unraid: **Docker → Add Container → Template:** paste the template URL
 npm run dev            # API on :8080 (auto-restart) + Vite on :5173
 npm run fake-printer   # simulated P1S on 127.0.0.1 (serial 01P00A000000001, code 12345678);
                        # queues demo prints by itself (FAKE_AUTO_PRINT=0 to disable)
+                       # type z + Enter to stop/resume its reports (stale-data test)
 npm test               # unit + API tests
+npm run test:e2e       # Playwright end-to-end tests: builds the app, starts it and the
+                       # fake printer (`npx playwright install chromium` once; the fake printer needs
+                       # ports 8883/6000/990 free)
 npm run check          # type-check server and frontend
 ```
 

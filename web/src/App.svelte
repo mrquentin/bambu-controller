@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, authEvents } from './lib/api';
+  import { NetworkError, api, authEvents } from './lib/api';
+  import { t } from './lib/i18n.svelte';
   import { match, navigate, route } from './lib/router.svelte';
   import { toasts } from './lib/toast.svelte';
   import Login from './pages/Login.svelte';
@@ -11,6 +12,9 @@
   import Settings from './pages/Settings.svelte';
   import History from './pages/History.svelte';
   import ThemeSwitcher from './components/ThemeSwitcher.svelte';
+  import ConfirmDialog from './components/ConfirmDialog.svelte';
+  import OfflineBanner from './components/OfflineBanner.svelte';
+  import { connectivity } from './lib/connectivity.svelte';
 
   let auth = $state<{ loading: boolean; setupRequired: boolean; user: { id: number; username: string } | null }>({
     loading: true,
@@ -18,14 +22,24 @@
     user: null,
   });
 
+  // Server unreachable on startup: keep "Loading…" (the offline banner explains) and retry on reconnect.
+  let retryAuth = false;
   async function refreshAuth() {
     try {
       const s = await api('/api/auth/state');
       auth = { loading: false, setupRequired: s.setupRequired, user: s.user };
-    } catch {
-      auth = { ...auth, loading: false };
+    } catch (err) {
+      if (err instanceof NetworkError && auth.loading) retryAuth = true;
+      else auth = { ...auth, loading: false };
     }
   }
+
+  $effect(() => {
+    if (connectivity.serverReachable && retryAuth) {
+      retryAuth = false;
+      refreshAuth();
+    }
+  });
 
   async function logout() {
     await api('/api/auth/logout', { method: 'POST' }).catch(() => {});
@@ -50,8 +64,10 @@
   const edit = $derived(match('/printer/:id/edit', route.path));
 </script>
 
+<OfflineBanner />
+
 {#if auth.loading}
-  <div class="empty">Loading…</div>
+  <div class="empty">{t('common.loading')}</div>
 {:else if !auth.user}
   <div class="corner"><ThemeSwitcher /></div>
   <Login setup={auth.setupRequired} onAuthenticated={refreshAuth} />
@@ -63,10 +79,10 @@
     </a>
     <span class="spacer"></span>
     <ThemeSwitcher />
-    <a class="btn small nav-history" href="#/history">History</a>
-    <a class="btn small" href="#/settings">Settings</a>
+    <a class="btn small nav-history" href="#/history">{t('nav.history')}</a>
+    <a class="btn small" href="#/settings">{t('nav.settings')}</a>
     <span class="muted small user">{auth.user.username}</span>
-    <button class="small ghost" onclick={logout}>Log out</button>
+    <button class="small ghost" onclick={logout}>{t('nav.logout')}</button>
   </nav>
 
   {#if route.path === '/'}
@@ -82,7 +98,7 @@
   {:else if detail}
     {#key detail.id}<PrinterDetail id={Number(detail.id)} tab={(detail.tab ?? 'control') as 'control' | 'files' | 'history' | 'info'} />{/key}
   {:else}
-    <div class="empty">Page not found. <a href="#/">Back to printers</a></div>
+    <div class="empty">{t('app.notFound')} <a href="#/">{t('app.backToPrinters')}</a></div>
   {/if}
 {/if}
 
@@ -91,6 +107,8 @@
     <div class="toast {t.kind}">{t.message}</div>
   {/each}
 </div>
+
+<ConfirmDialog />
 
 <style>
   .corner {
