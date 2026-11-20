@@ -3,7 +3,8 @@ import type { FastifyInstance } from 'fastify';
 import { requireAuth } from '../auth.ts';
 import { safeRemotePath } from '../bambu/ftps.ts';
 import { config } from '../config.ts';
-import { withPrinter } from './shared.ts';
+import { idParams, remotePathQuery, type RemotePathQuery } from '../validation.ts';
+import { withPrinter, type PrinterRoute } from './shared.ts';
 
 /** Formats browsers play natively (served as-is with Range support). */
 const MEDIA_TYPES: Record<string, string> = {
@@ -23,10 +24,12 @@ const TRANSCODE_EXTENSIONS = new Set(['avi', 'mkv']);
 
 /** Long-lived binary streams: live camera (MJPEG), snapshots, and timelapse/image playback. */
 export async function mediaRoutes(app: FastifyInstance) {
-  app.addHook('preHandler', requireAuth);
+  // Before validation, so anonymous callers get 401 rather than a schema error.
+  app.addHook('preValidation', requireAuth);
 
   app.get(
     '/api/printers/:id/camera/stream',
+    { schema: { params: idParams } },
     withPrinter(async (p, request, reply) => {
       reply.hijack();
       const res = reply.raw;
@@ -52,6 +55,7 @@ export async function mediaRoutes(app: FastifyInstance) {
 
   app.get(
     '/api/printers/:id/camera/snapshot',
+    { schema: { params: idParams } },
     withPrinter(async (p, _request, reply) => {
       try {
         const jpeg = await p.camera.snapshot();
@@ -65,7 +69,8 @@ export async function mediaRoutes(app: FastifyInstance) {
   // Media playback (videos / images) with HTTP Range support so the player can seek.
   app.get(
     '/api/printers/:id/files/stream',
-    withPrinter(async (p, request, reply) => {
+    { schema: { params: idParams, querystring: remotePathQuery } },
+    withPrinter<PrinterRoute & { Querystring: RemotePathQuery }>(async (p, request, reply) => {
       let path: string;
       try {
         path = safeRemotePath(request.query.path);

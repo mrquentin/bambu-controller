@@ -16,6 +16,7 @@ import { jobRoutes } from './routes/job.ts';
 import { mediaRoutes } from './routes/media.ts';
 import { printerRoutes } from './routes/printers.ts';
 import { pushRoutes } from './routes/push.ts';
+import { ajvOptions, formatValidationError } from './validation.ts';
 import { APP_VERSION } from './version.ts';
 
 export interface BuildOptions {
@@ -42,6 +43,9 @@ export async function buildApp(options: BuildOptions = {}) {
     // Don't keep idle keep-alive sockets forever.
     keepAliveTimeout: 10_000,
     requestTimeout: 0, // streams (camera, SSE, video) are long-lived by design
+    // Route schemas reject malformed input with a readable 400 (see validation.ts).
+    ajv: ajvOptions,
+    schemaErrorFormatter: formatValidationError,
   });
   setAuditLogger(app.log);
 

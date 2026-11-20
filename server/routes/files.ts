@@ -5,18 +5,59 @@ import * as cmd from '../bambu/commands.ts';
 import { safeRemotePath } from '../bambu/ftps.ts';
 import { printUrlFor } from '../bambu/models.ts';
 import { audit } from '../audit.ts';
-import { attachmentHeader, safeFileName, withPrinter } from './shared.ts';
+import { idParams, remotePathQuery, type RemotePathQuery } from '../validation.ts';
+import { attachmentHeader, safeFileName, withPrinter, type PrinterRoute } from './shared.ts';
 
 /** Files the printer can print — the only types accepted for upload. */
 const UPLOAD_EXTENSIONS = /\.(3mf|gcode)$/i;
 
+interface PathRoute extends PrinterRoute {
+  Querystring: RemotePathQuery;
+}
+
+const pathSchema = { schema: { params: idParams, querystring: remotePathQuery } };
+
+const printBody = {
+  type: 'object',
+  required: ['path'],
+  additionalProperties: false,
+  properties: {
+    path: { type: 'string', maxLength: 1024, errorMessage: 'Invalid path' },
+    plate: { type: ['integer', 'null'], minimum: 1, maximum: 99, errorMessage: 'Invalid plate' },
+    bedLeveling: { type: 'boolean' },
+    timelapse: { type: 'boolean' },
+    useAms: { type: 'boolean' },
+    flowCali: { type: 'boolean' },
+    vibrationCali: { type: 'boolean' },
+    layerInspect: { type: 'boolean' },
+    // AMS slot per filament of the project; -1 leaves a filament unmapped.
+    amsMapping: { type: 'array', maxItems: 64, items: { type: 'integer' } },
+  },
+};
+
+interface PrintRoute extends PrinterRoute {
+  Body: {
+    path: string;
+    plate?: number | null;
+    bedLeveling?: boolean;
+    timelapse?: boolean;
+    useAms?: boolean;
+    flowCali?: boolean;
+    vibrationCali?: boolean;
+    layerInspect?: boolean;
+    amsMapping?: number[];
+  };
+}
+
 /** Printer storage over FTPS: browse, transfer, delete, and start a print from a file. */
 export async function fileRoutes(app: FastifyInstance) {
-  app.addHook('preHandler', requireAuth);
+  // Before validation, so anonymous callers get 401 rather than a schema error.
+  app.addHook('preValidation', requireAuth);
 
   app.get(
     '/api/printers/:id/files',
-    withPrinter(async (p, request, reply) => {
+    pathSchema,
+    withPrinter<PathRoute>(async (p, request, reply) => {
       const path = safeRemotePath(request.query.path); // throws 400 on bad input
       try {
         return await p.ftps.list(path);
@@ -28,7 +69,8 @@ export async function fileRoutes(app: FastifyInstance) {
 
   app.get(
     '/api/printers/:id/files/download',
-    withPrinter(async (p, request, reply) => {
+    pathSchema,
+    withPrinter<PathRoute>(async (p, request, reply) => {
       const path = safeRemotePath(request.query.path);
       const name = path.split('/').pop() || 'download';
       const stream = new PassThrough();
@@ -43,7 +85,8 @@ export async function fileRoutes(app: FastifyInstance) {
 
   app.post(
     '/api/printers/:id/files/upload',
-    withPrinter(async (p, request, reply) => {
+    pathSchema,
+    withPrinter<PathRoute>(async (p, request, reply) => {
       const dir = safeRemotePath(request.query.path);
       const file = await request.file({ limits: { fileSize: 1024 * 1024 * 1024 } });
       if (!file) return reply.code(400).send({ error: 'No file provided' });
@@ -77,7 +120,8 @@ export async function fileRoutes(app: FastifyInstance) {
 
   app.delete(
     '/api/printers/:id/files',
-    withPrinter(async (p, request, reply) => {
+    pathSchema,
+    withPrinter<PathRoute>(async (p, request, reply) => {
       const path = safeRemotePath(request.query.path);
       try {
         await p.ftps.remove(path);
@@ -91,8 +135,9 @@ export async function fileRoutes(app: FastifyInstance) {
 
   app.post(
     '/api/printers/:id/print',
-    withPrinter(async (p, request, reply) => {
-      const body = request.body ?? {};
+    { schema: { params: idParams, body: printBody } },
+    withPrinter<PrintRoute>(async (p, request, reply) => {
+      const body = request.body;
       let path: string;
       try {
         path = safeRemotePath(body.path);
@@ -103,9 +148,7 @@ export async function fileRoutes(app: FastifyInstance) {
       const fileName = path.split('/').pop()!;
       const plate = Number(body.plate ?? 1);
       if (!Number.isInteger(plate) || plate < 1 || plate > 99) return reply.code(400).send({ error: 'Invalid plate' });
-      const amsMapping = Array.isArray(body.amsMapping)
-        ? body.amsMapping.map((v: unknown) => Number(v)).filter((v: number) => Number.isInteger(v))
-        : undefined;
+      const amsMapping = body.amsMapping;
       try {
         await p.connection.send(
           cmd.printProjectFile({

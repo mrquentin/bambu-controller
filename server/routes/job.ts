@@ -2,7 +2,8 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { requireAuth } from '../auth.ts';
 import { JobObjectsError, jobObjects, skippedIds, type LoadedJob } from '../bambu/job-objects.ts';
 import type { ManagedPrinter } from '../manager.ts';
-import { withPrinter } from './shared.ts';
+import { idParams } from '../validation.ts';
+import { withPrinter, type PrinterRoute } from './shared.ts';
 
 /** Load (or reuse) the current job's object list; maps failures to HTTP errors. */
 async function currentJob(p: ManagedPrinter, reply: FastifyReply, refresh = false): Promise<LoadedJob | null> {
@@ -21,12 +22,19 @@ async function currentJob(p: ManagedPrinter, reply: FastifyReply, refresh = fals
 
 /** Skip objects: the running job's objects and plate images (see bambu/job-objects.ts). */
 export async function jobRoutes(app: FastifyInstance) {
-  app.addHook('preHandler', requireAuth);
+  // Before validation, so anonymous callers get 401 rather than a schema error.
+  app.addHook('preValidation', requireAuth);
 
   app.get(
     '/api/printers/:id/job/objects',
-    withPrinter(async (p, request, reply) => {
-      const job = await currentJob(p, reply, request.query?.refresh === '1');
+    {
+      schema: {
+        params: idParams,
+        querystring: { type: 'object', properties: { refresh: { type: 'string', enum: ['0', '1'] } } },
+      },
+    },
+    withPrinter<PrinterRoute & { Querystring: { refresh?: '0' | '1' } }>(async (p, request, reply) => {
+      const job = await currentJob(p, reply, request.query.refresh === '1');
       if (!job) return reply;
       const skipped = new Set(skippedIds(p.connection.state));
       return {
@@ -45,6 +53,7 @@ export async function jobRoutes(app: FastifyInstance) {
   ] as const) {
     app.get(
       `/api/printers/:id/job/${route}`,
+      { schema: { params: idParams } },
       withPrinter(async (p, _request, reply) => {
         const job = await currentJob(p, reply);
         if (!job) return reply;

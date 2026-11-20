@@ -20,19 +20,62 @@ import {
   verifyPassword,
 } from '../auth.ts';
 import { db, type UserRow } from '../db.ts';
+import { idParams, type IdParams } from '../validation.ts';
 
 interface Credentials {
-  username?: unknown;
-  password?: unknown;
+  username: string;
+  password: string;
 }
+
+const USERNAME_RULE = 'Username must be 3–32 characters (letters, digits, . _ - @)';
+const PASSWORD_MESSAGES = { maxLength: 'Password is too long (max 256 characters)', type: 'Password must be a string' };
+
+/** New accounts (setup, user creation); `validCredentials` applies the format and password policy. */
+const newCredentialsBody = {
+  type: 'object',
+  required: ['username', 'password'],
+  additionalProperties: false,
+  properties: {
+    username: { type: 'string', maxLength: 32, errorMessage: USERNAME_RULE },
+    password: { type: 'string', maxLength: 256, errorMessage: PASSWORD_MESSAGES },
+  },
+};
+
+/** Login: any malformed input gets the same message as a wrong password (no hint about the account). */
+const loginBody = {
+  type: 'object',
+  required: ['username', 'password'],
+  additionalProperties: false,
+  properties: {
+    username: { type: 'string', maxLength: 64, errorMessage: 'Invalid username or password' },
+    password: { type: 'string', maxLength: 256, errorMessage: 'Invalid username or password' },
+  },
+};
+
+const passwordChangeBody = {
+  type: 'object',
+  required: ['current', 'next'],
+  additionalProperties: false,
+  properties: {
+    current: { type: 'string', maxLength: 256, errorMessage: 'Current password is incorrect' },
+    next: { type: 'string', maxLength: 256, errorMessage: PASSWORD_MESSAGES },
+  },
+};
+
+/** Public session ids are the first 16 hex characters of the token hash. */
+const sessionParams = {
+  type: 'object',
+  required: ['id'],
+  properties: { id: { type: 'string', pattern: '^[a-f0-9]{16}$', errorMessage: 'Session not found' } },
+};
 
 /** Strict limits for endpoints that accept credentials. */
 const credentialLimit = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 
 function validCredentials(body: Credentials): { username: string; password: string } | string {
-  const username = typeof body.username === 'string' ? body.username.trim() : '';
-  const password = typeof body.password === 'string' ? body.password : '';
-  if (!/^[\w.@-]{3,32}$/.test(username)) return 'Username must be 3–32 characters (letters, digits, . _ - @)';
+  const username = body.username.trim();
+  const password = body.password;
+  if (!/^[\w.@-]{3,32}$/.test(username)) return USERNAME_RULE;
   return passwordProblem(password, username) ?? { username, password };
 }
 
@@ -44,9 +87,9 @@ export async function authRoutes(app: FastifyInstance) {
 
   // First run: create the initial account. Only allowed while no users exist;
   // the conditional INSERT makes concurrent setup requests safe.
-  app.post<{ Body: Credentials }>('/api/auth/setup', { config: credentialLimit }, async (request, reply) => {
+  app.post<{ Body: Credentials }>('/api/auth/setup', { config: credentialLimit, schema: { body: newCredentialsBody } }, async (request, reply) => {
     if (userCount() > 0) return reply.code(409).send({ error: 'Setup already completed' });
-    const creds = validCredentials(request.body ?? {});
+    const creds = validCredentials(request.body);
     if (typeof creds === 'string') return reply.code(400).send({ error: creds });
     const hash = await hashPassword(creds.password);
     const result = db
@@ -60,9 +103,9 @@ export async function authRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.post<{ Body: Credentials }>('/api/auth/login', { config: credentialLimit }, async (request, reply) => {
-    const username = typeof request.body?.username === 'string' ? request.body.username.trim().slice(0, 64) : '';
-    const password = typeof request.body?.password === 'string' ? request.body.password.slice(0, 256) : '';
+  app.post<{ Body: Credentials }>('/api/auth/login', { config: credentialLimit, schema: { body: loginBody } }, async (request, reply) => {
+    const username = request.body.username.trim();
+    const password = request.body.password;
     const blocked = loginBlockedFor(request.ip, username);
     if (blocked > 0) {
       audit(request, { action: 'auth.login', outcome: 'blocked', username });
@@ -91,13 +134,12 @@ export async function authRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.post<{ Body: { current?: unknown; next?: unknown } }>(
+  app.post<{ Body: { current: string; next: string } }>(
     '/api/auth/password',
-    { preHandler: requireAuth, config: credentialLimit },
+    { preValidation: requireAuth, config: credentialLimit, schema: { body: passwordChangeBody } },
     async (request, reply) => {
       const user = db.prepare('SELECT * FROM users WHERE id = ?').get(request.user!.id) as unknown as UserRow;
-      const current = typeof request.body?.current === 'string' ? request.body.current : '';
-      const next = typeof request.body?.next === 'string' ? request.body.next : '';
+      const { current, next } = request.body;
       if (!(await verifyPassword(current, user.password_hash))) {
         audit(request, { action: 'auth.password_change', outcome: 'failure' });
         return reply.code(400).send({ error: 'Current password is incorrect' });
@@ -116,13 +158,13 @@ export async function authRoutes(app: FastifyInstance) {
 
   // --- sessions of the current user ---
 
-  app.get('/api/auth/sessions', { preHandler: requireAuth }, async (request) =>
+  app.get('/api/auth/sessions', { preValidation: requireAuth }, async (request) =>
     listSessions(request.user!.id, request.cookies[SESSION_COOKIE]),
   );
 
   app.delete<{ Params: { id: string } }>(
     '/api/auth/sessions/:id',
-    { preHandler: requireAuth },
+    { preValidation: requireAuth, schema: { params: sessionParams } },
     async (request, reply) => {
       if (!revokeSession(request.user!.id, request.params.id)) return reply.code(404).send({ error: 'Session not found' });
       audit(request, { action: 'auth.session_revoke' });
@@ -130,7 +172,7 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post('/api/auth/sessions/revoke-others', { preHandler: requireAuth }, async (request) => {
+  app.post('/api/auth/sessions/revoke-others', { preValidation: requireAuth }, async (request) => {
     deleteUserSessions(request.user!.id, request.cookies[SESSION_COOKIE]);
     audit(request, { action: 'auth.session_revoke_others' });
     return { ok: true };
@@ -138,15 +180,15 @@ export async function authRoutes(app: FastifyInstance) {
 
   // --- user management (every account is an administrator) ---
 
-  app.get('/api/users', { preHandler: requireAuth }, async () =>
+  app.get('/api/users', { preValidation: requireAuth }, async () =>
     db.prepare('SELECT id, username, created_at FROM users ORDER BY username').all(),
   );
 
   app.post<{ Body: Credentials }>(
     '/api/users',
-    { preHandler: requireAuth, config: credentialLimit },
+    { preValidation: requireAuth, config: credentialLimit, schema: { body: newCredentialsBody } },
     async (request, reply) => {
-      const creds = validCredentials(request.body ?? {});
+      const creds = validCredentials(request.body);
       if (typeof creds === 'string') return reply.code(400).send({ error: creds });
       if (findUser(creds.username)) return reply.code(409).send({ error: 'That username already exists' });
       db.prepare('INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)').run(
@@ -159,7 +201,7 @@ export async function authRoutes(app: FastifyInstance) {
     },
   );
 
-  app.delete<{ Params: { id: string } }>('/api/users/:id', { preHandler: requireAuth }, async (request, reply) => {
+  app.delete<{ Params: IdParams }>('/api/users/:id', { preValidation: requireAuth, schema: { params: idParams } }, async (request, reply) => {
     const id = Number(request.params.id);
     if (id === request.user!.id) return reply.code(400).send({ error: "You can't delete your own account" });
     const target = db.prepare('SELECT username FROM users WHERE id = ?').get(id) as { username: string } | undefined;
@@ -171,5 +213,5 @@ export async function authRoutes(app: FastifyInstance) {
 
   // --- security audit log ---
 
-  app.get('/api/audit', { preHandler: requireAuth }, async () => recentAudit(300));
+  app.get('/api/audit', { preValidation: requireAuth }, async () => recentAudit(300));
 }
