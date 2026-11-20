@@ -27,16 +27,21 @@
   const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
   const q = (p: string) => encodeURIComponent(p);
 
+  // Only the latest listing request may update the view (fast clicks between folders).
+  let loadSeq = 0;
   async function load(dir = path) {
+    const seq = ++loadSeq;
     loading = true;
     error = null;
     try {
-      files = await api<RemoteFile[]>(`/api/printers/${printerId}/files?path=${q(dir)}`);
+      const listing = await api<RemoteFile[]>(`/api/printers/${printerId}/files?path=${q(dir)}`);
+      if (seq !== loadSeq) return;
+      files = listing;
       path = dir;
     } catch (err) {
-      error = (err as Error).message;
+      if (seq === loadSeq) error = (err as Error).message;
     } finally {
-      loading = false;
+      if (seq === loadSeq) loading = false;
     }
   }
 
@@ -107,9 +112,10 @@
   <header style="margin:0">
     <h2>{t('files.title')}</h2>
     <div class="row">
-      <label class="btn small" class:disabled={!online || uploading}>
+      <!-- Disabled while a folder loads: `path` only switches once its listing arrives. -->
+      <label class="btn small" class:disabled={!online || uploading || loading}>
         {uploading ? t('files.uploading') : t('files.upload')}
-        <input type="file" hidden onchange={upload} disabled={!online || uploading} />
+        <input type="file" hidden onchange={upload} disabled={!online || uploading || loading} />
       </label>
       <button class="small" onclick={() => load()} disabled={!online || loading}>
         {loading ? t('common.loading') : t('common.reload')}
