@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   JobObjectsCache,
-  buildSkipCommand,
   candidatePaths,
   decodeXmlEntities,
   describeSkipped,
+  skippableIds,
   loadJob,
   parseSliceInfo,
   plateFromGcodeFile,
@@ -205,7 +205,6 @@ describe('loading the job objects', () => {
 
   it('explains what went wrong', async () => {
     const store = memoryStore({ '/cache/Benchy.gcode.3mf': sample });
-    await assert.rejects(loadJob(store, { ...running, gcode_state: 'IDLE' }), { statusCode: 409 });
     await assert.rejects(loadJob(store, { gcode_state: 'RUNNING' }), { statusCode: 404 });
     await assert.rejects(loadJob(store, { ...running, subtask_name: 'Other' }), (err: any) => {
       assert.equal(err.statusCode, 404);
@@ -222,49 +221,41 @@ describe('loading the job objects', () => {
     await assert.rejects(loadJob(garbage, running), { statusCode: 422 });
   });
 
-  it('caches per printer and job, sharing concurrent loads', async () => {
+  it('caches per job, sharing concurrent loads', async () => {
     const store = memoryStore({ '/cache/Benchy.gcode.3mf': sample });
-    const cache = new JobObjectsCache();
-    const [a, b] = await Promise.all([cache.get(1, store, running), cache.get(1, store, running)]);
+    const cache = new JobObjectsCache(store);
+    const [a, b] = await Promise.all([cache.get(running), cache.get(running)]);
     assert.equal(a, b);
     assert.equal(store.lookups.length, 1);
-    assert.equal(await cache.get(1, store, running), a);
-    assert.equal(cache.peek(1, running), a);
-    assert.equal(cache.peek(1, { ...running, subtask_name: 'Other' }), null);
-    assert.equal(cache.peek(2, running), null);
-    await cache.get(1, store, running, true);
+    assert.equal(await cache.get(running), a);
+    assert.equal(cache.peek(running), a);
+    assert.equal(cache.peek({ ...running, subtask_name: 'Other' }), null);
+    await cache.get(running, true);
     assert.equal(store.lookups.length, 2);
-    await assert.rejects(cache.get(1, store, { ...running, gcode_state: 'FINISH' }), { statusCode: 409 });
-    assert.equal(cache.peek(1, running), null);
+    await assert.rejects(cache.get({ ...running, gcode_state: 'FINISH' }), { statusCode: 409 });
+    assert.equal(cache.peek(running), null);
   });
 });
 
 describe('skip_objects command validation', () => {
   const known = SAMPLE_OBJECTS.map((o) => ({ id: o.id, name: o.name }));
-  const obj = (c: unknown) => (c as any).print;
 
-  it('builds the command for valid ids', () => {
-    const c = obj(buildSkipCommand([296, 79, 296], running, known));
-    assert.equal(c.command, 'skip_objects');
-    assert.deepEqual(c.obj_list, [296, 79]);
-    assert.equal(typeof c.sequence_id, 'string');
+  it('keeps each requested id once', () => {
+    assert.deepEqual(skippableIds([296, 79, 296], running, known), [296, 79]);
   });
 
   it('accepts any positive ids when the object list is unknown', () => {
-    assert.deepEqual(obj(buildSkipCommand([5], { ...running, gcode_state: 'PAUSE' }, null)).obj_list, [5]);
+    assert.deepEqual(skippableIds([5], { ...running, gcode_state: 'PAUSE' }, null), [5]);
   });
 
   it('drops already skipped ids', () => {
-    assert.deepEqual(obj(buildSkipCommand([79, 296], { ...running, s_obj: [79] }, known)).obj_list, [296]);
-    assert.throws(() => buildSkipCommand([79], { ...running, s_obj: [79] }, known), /already skipped/);
+    assert.deepEqual(skippableIds([79, 296], { ...running, s_obj: [79] }, known), [296]);
+    assert.throws(() => skippableIds([79], { ...running, s_obj: [79] }, known), /already skipped/);
   });
 
-  it('rejects bad input', () => {
-    for (const ids of [undefined, 'x', [], [0], [-1], [1.5], ['79'], [2 ** 31], new Array(257).fill(1)]) {
-      assert.throws(() => buildSkipCommand(ids, running, null), RangeError, JSON.stringify(ids));
-    }
-    assert.throws(() => buildSkipCommand([12345], running, known), /not part of the current print/);
-    assert.throws(() => buildSkipCommand([79], { ...running, gcode_state: 'IDLE' }, known), /running or paused/);
+  it('rejects ids outside the print, or no print running', () => {
+    assert.throws(() => skippableIds([12345], running, known), /not part of the current print/);
+    assert.throws(() => skippableIds([79], { ...running, gcode_state: 'IDLE' }, known), /running or paused/);
   });
 
   it('names skipped objects for the audit log', () => {
@@ -308,7 +299,7 @@ describe('pick map decoding', () => {
   });
 
   it('reports printer rejections of skip_objects', () => {
-    const entry = (print: object, direction = 'in') => ({ direction, command: 'skip_objects', payload: { print } });
+    const entry = (print: object, direction: 'in' | 'out' = 'in') => ({ at: 1, direction, command: 'skip_objects', payload: { print } });
     assert.equal(skipReplyError(entry({ result: 'success' })), null);
     assert.equal(skipReplyError(entry({ result: 'fail', reason: 'not supported' })), 'not supported');
     assert.equal(skipReplyError(entry({ result: 'failed' })), 'failed');

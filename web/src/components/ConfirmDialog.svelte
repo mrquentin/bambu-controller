@@ -18,7 +18,6 @@
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     tick().then(() => confirmButton?.focus());
     return () => {
-      // Back to the button that opened the dialog, if it is still on the page.
       if (returnFocus?.isConnected) returnFocus.focus();
       returnFocus = null;
     };

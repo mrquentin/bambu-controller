@@ -1,26 +1,5 @@
 /** Browser side of push notifications (see web/public/sw.js and server/push.ts). */
 
-/** Event kinds in display order; each is labelled by the `notif.event.<key>` message. */
-export const PUSH_EVENTS = [
-  { key: 'finished' },
-  { key: 'failed' },
-  { key: 'paused' },
-  { key: 'hms' },
-  { key: 'started' },
-] as const;
-
-export type PushEventKind = (typeof PUSH_EVENTS)[number]['key'];
-
-export interface PushDevice {
-  id: number;
-  fingerprint: string;
-  service: string;
-  userAgent: string | null;
-  createdAt: number;
-  lastSuccessAt: number | null;
-  preferences: Record<PushEventKind, boolean>;
-}
-
 /**
  * Why push can't work here, or null when it can. Order matters: an insecure
  * context hides the APIs entirely, so check it before feature detection.
@@ -45,7 +24,7 @@ export function registerServiceWorker() {
   });
 }
 
-export function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
+function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   const base64 = value.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
   const raw = atob(base64);
   const bytes = new Uint8Array(raw.length);
@@ -59,7 +38,7 @@ export async function endpointFingerprint(endpoint: string) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function swRegistration() {
+async function swRegistration() {
   return (await navigator.serviceWorker.getRegistration('/')) ?? (await navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }));
 }
 

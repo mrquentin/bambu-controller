@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api } from '../lib/api';
-  import { decodePickMap, objectAt, type JobObjects } from '../lib/skip-objects';
+  import type { JobObjects } from '../../../shared/api.ts';
+  import { jobPrinting, skippedIds } from '../../../shared/printer.ts';
+  import { decodePickMap, objectAt } from '../lib/skip-objects';
   import { t } from '../lib/i18n.svelte';
   import { confirmAction } from '../lib/confirm.svelte';
 
@@ -31,12 +33,12 @@
   let plateFailed = $state(false);
   let overlay = $state<HTMLCanvasElement>();
 
-  const running = $derived(s.gcode_state === 'RUNNING' || s.gcode_state === 'PAUSE');
+  const running = $derived(jobPrinting(s.gcode_state));
   // Live `s_obj` from the printer plus what the file/server already knew.
   const skipped = $derived(
     new Set<number>([
       ...(job?.objects.filter((o) => o.skipped).map((o) => o.id) ?? []),
-      ...(Array.isArray(s.s_obj) ? s.s_obj.map(Number) : []),
+      ...skippedIds(s),
     ]),
   );
   const remaining = $derived(job ? job.objects.filter((o) => !skipped.has(o.id)).length : 0);
@@ -75,7 +77,7 @@
       if (!ids.some((id) => id !== 0)) throw new Error('pick map does not match the object list');
       pick = { ids, width: canvas.width, height: canvas.height };
     } catch {
-      pickError = true; // fall back to the list
+      pickError = true;
     }
   }
 
@@ -90,7 +92,6 @@
     return [n >> 16, (n >> 8) & 0xff, n & 0xff];
   }
 
-  // Paint selection / skipped / hover state over the plate thumbnail.
   $effect(() => {
     if (!overlay || !pick) return;
     const { ids, width, height } = pick;
@@ -99,7 +100,7 @@
     const ctx = overlay.getContext('2d')!;
     const out = ctx.createImageData(width, height);
     const accent = rgb('--accent');
-    const plain = !job?.hasPlateImage || plateFailed; // no thumbnail: draw the objects ourselves
+    const plain = !job?.hasPlateImage || plateFailed;
     const sel = new Set(selected);
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];

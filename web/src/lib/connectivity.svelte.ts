@@ -25,15 +25,20 @@ async function probe() {
   probeTimer = null;
   try {
     const res = await fetch('/api/health', { cache: 'no-store', credentials: 'same-origin' });
-    if (isGatewayError(res.status)) throw new Error(res.statusText);
+    if (!fromServer(res)) throw new Error(res.statusText);
     reportServerReachable();
   } catch {
     scheduleProbe();
   }
 }
 
-/** A reverse proxy answering for a server that is down. */
-export const isGatewayError = (status: number) => status === 502 || status === 503 || status === 504;
+/**
+ * The server answers in JSON, including its own 502/503 errors (an FTPS
+ * failure, an offline printer). A gateway error in any other format is a
+ * reverse proxy answering for a server that is down.
+ */
+export const fromServer = (res: Response) =>
+  ![502, 503, 504].includes(res.status) || Boolean(res.headers.get('content-type')?.includes('application/json'));
 
 export function reportServerUnreachable() {
   if (connectivity.serverReachable) connectivity.serverReachable = false;

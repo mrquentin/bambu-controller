@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { ApiError, api, type PrinterDetail } from '../lib/api';
-  import { isGatewayError, reportServerReachable } from '../lib/connectivity.svelte';
-  import { toast, toastError } from '../lib/toast.svelte';
+  import type { PrinterDetail } from '../../../shared/api.ts';
+  import { liveUpdates, printerCommands } from '../lib/api';
+  import { PRINTER_TABS, printerPage, type PrinterTab } from '../../../shared/pages.ts';
   import { t, type MessageKey } from '../lib/i18n.svelte';
   import ConnectionBadge from '../components/ConnectionBadge.svelte';
   import Camera from '../components/Camera.svelte';
@@ -17,69 +17,33 @@
   import Info from '../components/Info.svelte';
   import History from '../components/History.svelte';
 
-  type Tab = 'control' | 'files' | 'history' | 'info';
-  let { id, tab }: { id: number; tab: Tab } = $props();
+  let { id, tab }: { id: number; tab: PrinterTab } = $props();
 
-  const tabs: { id: Tab; label: MessageKey }[] = [
-    { id: 'control', label: 'printer.tabControl' },
-    { id: 'files', label: 'printer.tabFiles' },
-    { id: 'history', label: 'printer.tabHistory' },
-    { id: 'info', label: 'printer.tabInfo' },
-  ];
+  const TAB_LABELS: Record<PrinterTab, MessageKey> = {
+    control: 'printer.tabControl',
+    files: 'printer.tabFiles',
+    history: 'printer.tabHistory',
+    info: 'printer.tabInfo',
+  };
 
   let data = $state<PrinterDetail | null>(null);
   let error = $state<string | null>(null);
 
-  onMount(() => {
-    let source: EventSource;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
-
-    function connect() {
-      source = new EventSource(`/api/printers/${id}/events`);
-      source.onmessage = (event) => {
-        data = JSON.parse(event.data);
+  onMount(() =>
+    liveUpdates<PrinterDetail>(
+      `/api/printers/${id}`,
+      (detail) => {
+        data = detail;
         error = null;
-        reportServerReachable();
-      };
-      source.onerror = async () => {
-        // Distinguish "not found / logged out" from transient network errors
-        // (those show the offline banner and keep retrying).
-        try {
-          await api(`/api/printers/${id}`);
-        } catch (err) {
-          if (err instanceof ApiError && !isGatewayError(err.status)) {
-            error = err.message;
-            source.close();
-            return;
-          }
-        }
-        // The browser retries by itself unless the stream got an HTTP error.
-        if (source.readyState === EventSource.CLOSED && !stopped) retry = setTimeout(connect, 5000);
-      };
-    }
-
-    connect();
-    return () => {
-      stopped = true;
-      clearTimeout(retry);
-      source.close();
-    };
-  });
+      },
+      (message) => (error = message),
+    ),
+  );
 
   const online = $derived(data?.connection.status === 'online');
   const s = $derived(data?.state ?? {});
 
-  async function send(action: string, params: Record<string, unknown> = {}, successMessage?: string) {
-    try {
-      await api(`/api/printers/${id}/command`, { body: { action, ...params } });
-      if (successMessage) toast(successMessage, 'success');
-      return true;
-    } catch (err) {
-      toastError(err);
-      return false;
-    }
-  }
+  const send = $derived(printerCommands(id));
 </script>
 
 {#if error}
@@ -96,8 +60,8 @@
       </div>
       <span class="spacer"></span>
       <ConnectionBadge connection={data.connection} />
-      <button class="small" onclick={() => send('refresh', {}, t('printer.refreshRequested'))} disabled={!online}>{t('printer.refresh')}</button>
-      <a class="btn small" href="#/printer/{id}/edit">{t('common.edit')}</a>
+      <button class="small" onclick={() => send({ action: 'refresh' }, t('printer.refreshRequested'))} disabled={!online}>{t('printer.refresh')}</button>
+      <a class="btn small" href={printerPage(id, 'edit')}>{t('common.edit')}</a>
     </div>
 
     {#if data.connection.status !== 'online' && data.connection.error}
@@ -107,10 +71,10 @@
     {/if}
 
     <nav class="tabs" aria-label={t('printer.sections')}>
-      {#each tabs as tb}
-        <a href="#/printer/{id}{tb.id === 'control' ? '' : `/${tb.id}`}" class:current={tab === tb.id} aria-current={tab === tb.id ? 'page' : undefined}>
-          {t(tb.label)}
-          {#if tb.id === 'control' && Array.isArray(s.hms) && s.hms.length > 0}<span class="dot" title={t('printer.healthAlerts')}></span>{/if}
+      {#each PRINTER_TABS as tb}
+        <a href={printerPage(id, tb)} class:current={tab === tb} aria-current={tab === tb ? 'page' : undefined}>
+          {t(TAB_LABELS[tb])}
+          {#if tb === 'control' && Array.isArray(s.hms) && s.hms.length > 0}<span class="dot" title={t('printer.healthAlerts')}></span>{/if}
         </a>
       {/each}
     </nav>

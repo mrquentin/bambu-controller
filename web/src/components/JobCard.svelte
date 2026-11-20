@@ -1,5 +1,8 @@
 <script lang="ts">
-  import type { PrinterDetail, SendFn } from '../lib/api';
+  import type { PrinterDetail } from '../../../shared/api.ts';
+  import { LIGHT_NODES, type LightNode } from '../../../shared/commands.ts';
+  import { jobActive, jobPrinting, printErrorCode } from '../../../shared/printer.ts';
+  import type { SendFn } from '../lib/api';
   import { SPEED_LEVELS, formatDuration, formatEta, gcodeStateInfo, stageLabel } from '../lib/bambu';
   import { skipReplyError } from '../lib/skip-objects';
   import { toast } from '../lib/toast.svelte';
@@ -18,11 +21,13 @@
     $props();
 
   const st = $derived(gcodeStateInfo(s.gcode_state));
-  const active = $derived(['RUNNING', 'PAUSE', 'PREPARE', 'SLICING'].includes(s.gcode_state));
+  const active = $derived(jobActive(s.gcode_state));
   const paused = $derived(s.gcode_state === 'PAUSE');
   const stage = $derived(stageLabel(s));
   const eta = $derived(formatEta(s.mc_remaining_time));
-  const lights = $derived<{ node: string; mode: string }[]>(Array.isArray(s.lights_report) ? s.lights_report : []);
+  const lights = $derived<{ node: LightNode; mode: string }[]>(
+    Array.isArray(s.lights_report) ? s.lights_report.filter((l: { node: string }) => (LIGHT_NODES as readonly string[]).includes(l.node)) : [],
+  );
 
   async function stop() {
     const ok = await confirmAction({
@@ -31,11 +36,11 @@
       confirmLabel: t('job.stopPrint'),
       danger: true,
     });
-    if (ok) await send('stop', {}, t('job.stopRequested'));
+    if (ok) await send({ action: 'stop' }, t('job.stopRequested'));
   }
 
   // Skip objects: only while printing. Printer rejections arrive in the command log.
-  const canSkip = $derived(s.gcode_state === 'RUNNING' || s.gcode_state === 'PAUSE');
+  const canSkip = $derived(jobPrinting(s.gcode_state));
   let skipOpen = $state(false);
   let skipSentAt = 0;
   let skipReported = 0;
@@ -43,7 +48,7 @@
   async function skip(ids: number[]) {
     // Server timestamps: only replies logged after this point count.
     skipSentAt = log.reduce((max, e) => Math.max(max, e.at), 0) || 1;
-    return send('skipObjects', { ids }, t('job.skipping', { count: ids.length }));
+    return send({ action: 'skipObjects', ids }, t('job.skipping', { count: ids.length }));
   }
 
   $effect(() => {
@@ -56,12 +61,11 @@
     }
   });
 
-  const LIGHTS: Record<string, MessageKey> = {
+  const LIGHTS: Record<LightNode, MessageKey> = {
     chamber_light: 'job.chamberLight',
     chamber_light2: 'job.chamberLight2',
     work_light: 'job.workLight',
   };
-  const lightLabel = (node: string) => (LIGHTS[node] ? t(LIGHTS[node]) : node);
 </script>
 
 <section class="card stack job">
@@ -84,7 +88,7 @@
         <span>{t('job.left', { time: formatDuration(s.mc_remaining_time) })}{eta ? ` · ${t('job.eta', { time: eta })}` : ''}</span>
       </div>
       {#if stage && active}<div class="small">{t('job.stage')} <b>{stage}</b></div>{/if}
-      {#if s.print_error}<div class="alert error small">{t('job.printError', { code: String(s.print_error) })}</div>{/if}
+      {#if s.print_error}<div class="alert error small">{t('job.printError', { code: printErrorCode(s.print_error) })}</div>{/if}
     </div>
   {:else}
     <div class="muted small">
@@ -94,9 +98,9 @@
 
   <div class="row">
     {#if paused}
-      <button class="primary" onclick={() => send('resume', {}, t('job.resumeRequested'))} disabled={!online}>▶ {t('job.resume')}</button>
+      <button class="primary" onclick={() => send({ action: 'resume' }, t('job.resumeRequested'))} disabled={!online}>▶ {t('job.resume')}</button>
     {:else}
-      <button onclick={() => send('pause', {}, t('job.pauseRequested'))} disabled={!online || !active}>❚❚ {t('job.pause')}</button>
+      <button onclick={() => send({ action: 'pause' }, t('job.pauseRequested'))} disabled={!online || !active}>❚❚ {t('job.pause')}</button>
     {/if}
     <button class="danger" onclick={stop} disabled={!online || !active}>■ {t('job.stop')}</button>
     {#if canSkip}
@@ -107,15 +111,15 @@
       <button
         class="small"
         class:active={l.mode === 'on'}
-        onclick={() => send('light', { node: l.node, on: l.mode !== 'on' })}
+        onclick={() => send({ action: 'light', node: l.node, on: l.mode !== 'on' })}
         disabled={!online}
-        title={t('job.toggleLight', { light: lightLabel(l.node) })}
+        title={t('job.toggleLight', { light: t(LIGHTS[l.node]) })}
       >
-        💡 {lightLabel(l.node)}
+        💡 {t(LIGHTS[l.node])}
       </button>
     {:else}
-      <button class="small" onclick={() => send('light', { node: 'chamber_light', on: true })} disabled={!online}>💡 {t('common.on')}</button>
-      <button class="small" onclick={() => send('light', { node: 'chamber_light', on: false })} disabled={!online}>{t('common.off')}</button>
+      <button class="small" onclick={() => send({ action: 'light', node: 'chamber_light', on: true })} disabled={!online}>💡 {t('common.on')}</button>
+      <button class="small" onclick={() => send({ action: 'light', node: 'chamber_light', on: false })} disabled={!online}>{t('common.off')}</button>
     {/each}
   </div>
 
@@ -126,7 +130,7 @@
         <button
           class="small"
           class:active={s.spd_lvl === lvl.level}
-          onclick={() => send('speed', { level: lvl.level })}
+          onclick={() => send({ action: 'speed', level: lvl.level })}
           disabled={!online}
         >
           {t(lvl.key)} <span class="muted">{t('unit.percent', { value: lvl.pct })}</span>

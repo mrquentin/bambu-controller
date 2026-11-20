@@ -7,9 +7,9 @@
  * `'event'`; print history and notifications subscribe to it.
  */
 
-type Json = Record<string, any>;
+import { jobActive } from '../../shared/printer.ts';
 
-export type GcodeState = 'IDLE' | 'PREPARE' | 'RUNNING' | 'PAUSE' | 'FINISH' | 'FAILED' | 'SLICING' | 'INIT' | 'OFFLINE';
+type Json = Record<string, any>;
 
 /** Fields of the printer state that drive lifecycle events. */
 export interface JobSnapshot {
@@ -49,9 +49,7 @@ export type PrinterEvent = EventBase &
     | { type: 'hms_raised'; alerts: { attr: number; code: number }[] }
   );
 
-export type PrinterEventType = PrinterEvent['type'];
 
-const ACTIVE = new Set(['PREPARE', 'RUNNING', 'PAUSE', 'SLICING']);
 const numOrNull = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const strOrNull = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
@@ -85,10 +83,9 @@ export function detectEvents(prev: JobSnapshot | null, next: JobSnapshot, at = D
   const to = next.gcodeState;
 
   if (to && to !== from) {
-    const wasActive = from !== null && ACTIVE.has(from);
+    const wasActive = jobActive(from);
     if (!prev || from === null) {
-      // First sighting: adopt a job that is already underway.
-      if (ACTIVE.has(to)) events.push({ ...base, type: 'job_started', observedMidway: true });
+      if (jobActive(to)) events.push({ ...base, type: 'job_started', observedMidway: true });
     } else if ((to === 'PREPARE' || to === 'RUNNING') && !wasActive) {
       events.push({ ...base, type: 'job_started', observedMidway: false });
     } else if (to === 'PAUSE' && wasActive) {
@@ -100,7 +97,7 @@ export function detectEvents(prev: JobSnapshot | null, next: JobSnapshot, at = D
     } else if (to === 'FAILED' && wasActive) {
       events.push({ ...base, type: 'job_failed', printError: next.printError });
     }
-  } else if (prev && to && ACTIVE.has(to) && next.task && prev.task && next.task !== prev.task) {
+  } else if (prev && jobActive(to) && next.task && prev.task && next.task !== prev.task) {
     // A new job started without passing through an idle state in between.
     events.push({ ...base, type: 'job_started', observedMidway: false });
   }
@@ -120,4 +117,25 @@ export function detectEvents(prev: JobSnapshot | null, next: JobSnapshot, at = D
     }
   }
   return events;
+}
+
+/**
+ * Follows one printer's reports and turns them into lifecycle events. The
+ * baseline is only taken from a report that carries the print state, so the
+ * first one that does can adopt a job already underway.
+ */
+export class JobTracker {
+  private last: JobSnapshot | null = null;
+
+  observe(state: Json, at = Date.now()): { snapshot: JobSnapshot; events: PrinterEvent[] } {
+    const snapshot = jobSnapshot(state);
+    const events = detectEvents(this.last, snapshot, at);
+    if (snapshot.gcodeState !== null) this.last = snapshot;
+    return { snapshot, events };
+  }
+
+  /** Forget the baseline (the printer's state was reset). */
+  reset() {
+    this.last = null;
+  }
 }

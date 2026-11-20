@@ -1,4 +1,6 @@
 import type { EventEmitter } from 'node:events';
+import type { HistoryStats, JobPage, JobStats, JobStatus, PrintJob } from '../shared/api.ts';
+import { jobActive, jobEnded } from '../shared/printer.ts';
 import { jobSnapshot, type JobSnapshot, type PrinterEvent } from './bambu/job-events.ts';
 import { db, type PrinterRow } from './db.ts';
 
@@ -17,8 +19,6 @@ import { db, type PrinterRow } from './db.ts';
  *   while the app was down, or the printer went straight to IDLE) and is
  *   closed from what the printer reports.
  */
-
-export type JobStatus = 'running' | 'paused' | 'finished' | 'failed' | 'interrupted';
 
 export interface PrintJobRow {
   id: number;
@@ -47,8 +47,6 @@ export interface WatchedPrinter extends Pick<EventEmitter, 'on' | 'off'> {
 }
 
 const PROGRESS_INTERVAL_MS = 60_000;
-const ACTIVE = new Set(['PREPARE', 'RUNNING', 'PAUSE', 'SLICING']);
-const ENDED = new Set(['IDLE', 'FINISH', 'FAILED']);
 
 /** In-memory companion of an open (running / paused) row. */
 interface OpenJob {
@@ -64,6 +62,11 @@ interface OpenJob {
   seenActive: boolean;
 }
 
+/** Close an open row whose end the app lost track of, as of its last update. */
+function interruptLost(jobId: number) {
+  db.prepare("UPDATE print_jobs SET status = 'interrupted', ended_at = updated_at, paused_at = NULL WHERE id = ?").run(jobId);
+}
+
 export class HistoryRecorder {
   private open = new Map<number, OpenJob>();
   private listeners = new Map<number, { target: WatchedPrinter; onEvent: (e: PrinterEvent) => void; onUpdate: () => void }>();
@@ -77,9 +80,8 @@ export class HistoryRecorder {
 
   /** Close rows left open for printers that were removed while the app was down. */
   closeOrphans() {
-    db.prepare(
-      "UPDATE print_jobs SET status = 'interrupted', ended_at = updated_at, paused_at = NULL WHERE printer_id IS NULL AND status IN ('running', 'paused')",
-    ).run();
+    const orphans = db.prepare("SELECT id FROM print_jobs WHERE printer_id IS NULL AND status IN ('running', 'paused')").all() as { id: number }[];
+    for (const { id } of orphans) interruptLost(id);
   }
 
   watch(printer: WatchedPrinter) {
@@ -151,13 +153,13 @@ export class HistoryRecorder {
   handleState(printerId: number, job: JobSnapshot, now = this.clock()) {
     const current = this.open.get(printerId);
     if (!current || !job.gcodeState) return;
-    if (ACTIVE.has(job.gcodeState)) {
+    if (jobActive(job.gcodeState)) {
       current.seenActive = true;
       const changed = job.layer !== current.layer || job.percent !== current.percent;
       if (changed && now - current.writtenAt >= PROGRESS_INTERVAL_MS) this.writeProgress(current, job, now);
       return;
     }
-    if (!ENDED.has(job.gcodeState)) return;
+    if (!jobEnded(job.gcodeState)) return;
     const sameJob = job.task === current.task;
     const status: JobStatus =
       sameJob && job.gcodeState === 'FINISH' ? 'finished' : sameJob && job.gcodeState === 'FAILED' ? 'failed' : 'interrupted';
@@ -170,9 +172,7 @@ export class HistoryRecorder {
       .all(printerId) as unknown as PrintJobRow[];
     const [latest, ...stale] = rows;
     // Only one job can be open per printer; anything older lost track of its end.
-    for (const row of stale) {
-      db.prepare("UPDATE print_jobs SET status = 'interrupted', ended_at = updated_at, paused_at = NULL WHERE id = ?").run(row.id);
-    }
+    for (const row of stale) interruptLost(row.id);
     if (!latest) return;
     this.open.set(printerId, {
       id: latest.id,
@@ -282,7 +282,7 @@ export class HistoryRecorder {
     const row = db.prepare('SELECT updated_at, remaining_minutes FROM print_jobs WHERE id = ?').get(job.id) as
       | { updated_at: number; remaining_minutes: number | null }
       | undefined;
-    if (!row) return; // deleted meanwhile
+    if (!row) return;
     let endedAt = at;
     if (options.estimateEnd) {
       endedAt = status === 'finished' ? Math.min(at, row.updated_at + (row.remaining_minutes ?? 0) * 60_000) : row.updated_at;
@@ -302,25 +302,6 @@ export class HistoryRecorder {
 export const history = new HistoryRecorder();
 
 // ---------------------------------------------------------------- queries
-
-export interface PrintJob {
-  id: number;
-  printerId: number | null;
-  printerName: string;
-  task: string | null;
-  gcodeFile: string | null;
-  status: JobStatus;
-  startedAt: number;
-  endedAt: number | null;
-  observedMidway: boolean;
-  totalLayers: number | null;
-  lastLayer: number | null;
-  lastPercent: number | null;
-  printError: number | null;
-  pausedMs: number;
-  /** Time spent printing (excluding pauses); for open jobs, up to now. */
-  durationMs: number;
-}
 
 function toJob(r: PrintJobRow & { current_name: string | null }, now: number): PrintJob {
   const end = r.ended_at ?? now;
@@ -345,7 +326,7 @@ function toJob(r: PrintJobRow & { current_name: string | null }, now: number): P
   };
 }
 
-export function listJobs(options: { printerId?: number; limit: number; offset: number }, now = Date.now()) {
+export function listJobs(options: { printerId?: number; limit: number; offset: number }, now = Date.now()): JobPage {
   const where = options.printerId === undefined ? '' : 'WHERE j.printer_id = ?';
   const params = options.printerId === undefined ? [] : [options.printerId];
   const rows = db
@@ -358,24 +339,17 @@ export function listJobs(options: { printerId?: number; limit: number; offset: n
   return { jobs: rows.map((r) => toJob(r, now)), total };
 }
 
+/** Jobs outlive their printer, so this asks the table rather than the live printers. */
+export function printerKnown(id: number) {
+  return Boolean(db.prepare('SELECT 1 FROM printers WHERE id = ?').get(id));
+}
+
 export function getJob(id: number) {
   return db.prepare('SELECT * FROM print_jobs WHERE id = ?').get(id) as unknown as PrintJobRow | undefined;
 }
 
 export function deleteJob(id: number) {
   return db.prepare('DELETE FROM print_jobs WHERE id = ?').run(id).changes > 0;
-}
-
-export interface JobStats {
-  total: number;
-  byStatus: Record<JobStatus, number>;
-  /**
-   * finished / (finished + failed). Interrupted jobs are left out: their
-   * outcome is unknown (the app lost track of them). null without data.
-   */
-  successRate: number | null;
-  /** Printing time of ended jobs, pauses excluded. */
-  printTimeMs: number;
 }
 
 function emptyStats(): JobStats {
@@ -391,7 +365,7 @@ function addStatusRow(stats: JobStats, r: { status: JobStatus; n: number; ms: nu
 }
 
 /** Totals, plus a breakdown per printer (jobs of removed printers are grouped by their name). */
-export function jobStats(printerId?: number) {
+export function jobStats(printerId?: number): HistoryStats {
   const where = printerId === undefined ? '' : 'WHERE j.printer_id = ?';
   const rows = db
     .prepare(

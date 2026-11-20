@@ -3,7 +3,6 @@ import { pruneLoginFailures, pruneSessions } from './auth.ts';
 import { buildApp } from './app.ts';
 import { config } from './config.ts';
 import { manager } from './manager.ts';
-import { APP_VERSION } from './version.ts';
 
 const app = await buildApp();
 
@@ -28,5 +27,5 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-app.log.info(`Bambu Controller ${APP_VERSION}`);
+app.log.info(`Bambu Controller ${config.version}`);
 await app.listen({ port: config.port, host: config.host });

@@ -185,8 +185,7 @@ describe('notification fan-out', () => {
       { endpoint, p256dh: ua.getPublicKey().toString('base64url'), auth: crypto.randomBytes(16).toString('base64url') },
       null,
     );
-    assert.equal(typeof saved, 'object');
-    return { userId, id: (saved as { id: number }).id };
+    return { userId, id: saved.id };
   }
 
   it('sends only to subscriptions that want the event, and drops expired ones', async () => {

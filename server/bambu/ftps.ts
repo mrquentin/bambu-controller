@@ -1,47 +1,41 @@
 import { Writable, type Readable } from 'node:stream';
 import { Client, type FileInfo } from 'basic-ftp';
-import { printerTlsOptions, type TlsTarget } from './tls.ts';
+import { MAX_PATH_LENGTH } from '../../shared/forms.ts';
+import { HttpError } from '../http-error.ts';
+import { printerTlsOptions, type PrinterEndpoint } from './tls.ts';
 
 /**
  * Printer storage (SD card / internal storage) over implicit FTPS on port 990,
  * user "bblp", password = access code. Printers accept very few concurrent
- * sessions, so operations are serialized per printer.
+ * sessions, so operations are serialized per printer. Failures are reported as
+ * HttpError 502 ("FTPS: …"), or 404 for a missing file being streamed.
  */
 export class PrinterFtps {
   private queue: Promise<unknown> = Promise.resolve();
-  private ip: string;
-  private accessCode: string;
-  private trust: TlsTarget;
+  private target: () => PrinterEndpoint;
   /** Always 990 on printers; overridable for tests against a local fake. */
   port = 990;
 
-  constructor(ip: string, accessCode: string, trust: TlsTarget) {
-    this.ip = ip;
-    this.accessCode = accessCode;
-    this.trust = trust;
-  }
-
-  configure(ip: string, accessCode: string, trust: TlsTarget) {
-    this.ip = ip;
-    this.accessCode = accessCode;
-    this.trust = trust;
+  constructor(target: () => PrinterEndpoint) {
+    this.target = target;
   }
 
   private async connect(): Promise<Client> {
+    const target = this.target();
     const client = new Client(20_000);
     try {
       await client.access({
-        host: this.ip,
+        host: target.ip,
         port: this.port,
         user: 'bblp',
-        password: this.accessCode,
+        password: target.access_code,
         secure: 'implicit',
         // The printer (vsftpd, require_ssl_reuse) only accepts data connections that
         // resume the control connection's TLS session. basic-ftp copies these options
         // onto the data socket; without `host` Node won't resume the session there
         // and the server answers "522 session reuse required".
         // Certificate verification follows the printer's trust policy (tls.ts).
-        secureOptions: { ...printerTlsOptions(this.trust), host: this.ip },
+        secureOptions: { ...printerTlsOptions(target), host: target.ip },
       });
       return client;
     } catch (err) {
@@ -60,7 +54,9 @@ export class PrinterFtps {
       }
     });
     this.queue = task.catch(() => {});
-    return task;
+    return task.catch((err) => {
+      throw ftpsError(err);
+    });
   }
 
   list(dir: string) {
@@ -120,7 +116,7 @@ export class PrinterFtps {
             received += part.length;
             if (received >= length) {
               done = true;
-              client.close(); // ends the transfer early; the session is discarded anyway
+              client.close();
             }
           }
           callback();
@@ -153,13 +149,17 @@ export class PrinterFtps {
     signal: AbortSignal,
   ): Promise<void> {
     this.activeStream?.close();
-    const client = await this.connect();
+    const client = await this.connect().catch((err) => {
+      throw ftpsError(err);
+    });
     this.activeStream = client;
     const abort = () => client.close();
     signal.addEventListener('abort', abort);
     try {
       if (signal.aborted) return;
-      const size = await client.size(path);
+      const size = await client.size(path).catch((err) => {
+        throw ftpsError(err, { reading: true });
+      });
       let start = range.start ?? 0;
       let end = Math.min(range.end ?? size - 1, size - 1);
       if (range.suffix !== undefined) {
@@ -172,7 +172,6 @@ export class PrinterFtps {
       const length = end - start + 1;
       let sent = 0;
       let done = false;
-      // Forward exactly `length` bytes, then hang up the FTP transfer.
       const limiter = new Writable({
         write(chunk: Buffer, _enc, callback) {
           if (done) return callback();
@@ -193,8 +192,7 @@ export class PrinterFtps {
       try {
         await client.downloadTo(limiter, path, start);
       } catch (err) {
-        // Closing the client on purpose (range complete / viewer left) is not an error.
-        if (!done && !signal.aborted && !dest.destroyed) throw err;
+        if (!done && !signal.aborted && !dest.destroyed) throw ftpsError(err, { reading: true });
       }
       if (!dest.writableEnded) dest.end();
     } finally {
@@ -205,12 +203,23 @@ export class PrinterFtps {
   }
 }
 
+/**
+ * Errors of other origins (e.g. the upload stream's own) keep their status.
+ * FTP 550 means "not found" only when reading a file; it also covers
+ * permission problems, so writes report it as a 502 with the printer's text.
+ */
+function ftpsError(err: unknown, { reading = false } = {}): Error {
+  if ((err as { statusCode?: number }).statusCode) return err as Error;
+  const notFound = reading && (err as { code?: number }).code === 550;
+  return new HttpError(notFound ? 404 : 502, `FTPS: ${(err as Error).message}`);
+}
+
 /** Reject paths that try to escape with `..` and normalize slashes. */
 export function safeRemotePath(input: unknown): string {
   const raw = typeof input === 'string' ? input : '/';
   const parts = raw.replace(/\\/g, '/').split('/').filter(Boolean);
-  if (parts.some((p) => p === '..' || p === '.' || /[\u0000-\u001f\u007f]/.test(p)) || raw.length > 1024) {
-    throw Object.assign(new Error('Invalid path'), { statusCode: 400 });
+  if (parts.some((p) => p === '..' || p === '.' || /[\u0000-\u001f\u007f]/.test(p)) || raw.length > MAX_PATH_LENGTH) {
+    throw new HttpError(400, 'Invalid path');
   }
   return `/${parts.join('/')}`;
 }

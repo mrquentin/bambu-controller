@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { EXTERNAL_TRAY, NO_TRAY, jobActive, trayId } from '../../../shared/printer.ts';
   import type { SendFn } from '../lib/api';
   import { amsHumidityLabel, trayColor } from '../lib/bambu';
   import { t } from '../lib/i18n.svelte';
@@ -8,15 +9,13 @@
 
   const units = $derived<any[]>(Array.isArray(s.ams?.ams) ? s.ams.ams : []);
   const external = $derived(s.vt_tray ?? null);
-  const trayNow = $derived(Number(s.ams?.tray_now ?? 255));
-  const printing = $derived(['RUNNING', 'PREPARE', 'PAUSE'].includes(s.gcode_state));
+  const trayNow = $derived(Number(s.ams?.tray_now ?? NO_TRAY));
+  const printing = $derived(jobActive(s.gcode_state));
 
-  // AMS HT units use ids >= 128 and hold a single tray.
-  const globalTrayId = (amsId: number, trayId: number) => (amsId >= 128 ? amsId : amsId * 4 + trayId);
 
-  async function load(amsId: number, trayId: number) {
+  async function load(amsId: number, slot: number) {
     const ok = await confirmAction({ title: t('ams.confirmLoadTitle'), message: t('ams.confirmLoad'), confirmLabel: t('ams.load') });
-    if (ok) await send('loadFilament', { tray: globalTrayId(amsId, trayId) }, t('ams.loadRequested'));
+    if (ok) await send({ action: 'loadFilament', tray: trayId(amsId, slot) }, t('ams.loadRequested'));
   }
 
   async function unload() {
@@ -26,7 +25,7 @@
       confirmLabel: t('ams.unload'),
       danger: true,
     });
-    if (ok) await send('unloadFilament', {}, t('ams.unloadRequested'));
+    if (ok) await send({ action: 'unloadFilament' }, t('ams.unloadRequested'));
   }
 </script>
 
@@ -34,7 +33,7 @@
   <section class="card stack">
     <header style="margin:0">
       <h2>{t('ams.title')}</h2>
-      <button class="small" onclick={unload} disabled={!online || printing || trayNow === 255}>{t('ams.unload')}</button>
+      <button class="small" onclick={unload} disabled={!online || printing || trayNow === NO_TRAY}>{t('ams.unload')}</button>
     </header>
 
     <div class="units">
@@ -48,7 +47,7 @@
         </div>
         <div class="trays">
           {#each unit.tray ?? [] as tray (tray.id)}
-            {@const gid = globalTrayId(Number(unit.id), Number(tray.id))}
+            {@const gid = trayId(Number(unit.id), Number(tray.id))}
             {@const empty = !tray.tray_type}
             <button
               class="tray"
@@ -75,7 +74,7 @@
         <span class="muted">{t('ams.external')}</span>
         <span class="swatch" style="background:{external.tray_type ? trayColor(external.tray_color) : 'transparent'}"></span>
         <span>{external.tray_type || t('ams.empty')}</span>
-        {#if trayNow === 254}<span class="badge plain tone-ok">{t('ams.loaded')}</span>{/if}
+        {#if trayNow === EXTERNAL_TRAY}<span class="badge plain tone-ok">{t('ams.loaded')}</span>{/if}
       </div>
     {/if}
     <p class="muted small" style="margin:0">{t('ams.clickToLoad')}</p>

@@ -1,15 +1,15 @@
 import { PassThrough } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
-import { requireAuth } from '../auth.ts';
+import type { RemoteFile } from '../../shared/api.ts';
+import { PROJECT_FILE, UPLOADABLE, joinPath } from '../../shared/files.ts';
+import { MAX_PATH_LENGTH, PLATE, type PrintRequest } from '../../shared/forms.ts';
 import * as cmd from '../bambu/commands.ts';
 import { safeRemotePath } from '../bambu/ftps.ts';
 import { printUrlFor } from '../bambu/models.ts';
 import { audit } from '../audit.ts';
+import { HttpError } from '../http-error.ts';
 import { idParams, remotePathQuery, type RemotePathQuery } from '../validation.ts';
-import { attachmentHeader, safeFileName, withPrinter, type PrinterRoute } from './shared.ts';
-
-/** Files the printer can print — the only types accepted for upload. */
-const UPLOAD_EXTENSIONS = /\.(3mf|gcode)$/i;
+import { withPrinter, type PrinterRoute } from './shared.ts';
 
 interface PathRoute extends PrinterRoute {
   Querystring: RemotePathQuery;
@@ -22,49 +22,48 @@ const printBody = {
   required: ['path'],
   additionalProperties: false,
   properties: {
-    path: { type: 'string', maxLength: 1024, errorMessage: 'Invalid path' },
-    plate: { type: ['integer', 'null'], minimum: 1, maximum: 99, errorMessage: 'Invalid plate' },
+    path: { type: 'string', maxLength: MAX_PATH_LENGTH, errorMessage: 'Invalid path' },
+    plate: { type: 'integer', minimum: PLATE.min, maximum: PLATE.max, errorMessage: 'Invalid plate' },
     bedLeveling: { type: 'boolean' },
     timelapse: { type: 'boolean' },
     useAms: { type: 'boolean' },
     flowCali: { type: 'boolean' },
     vibrationCali: { type: 'boolean' },
     layerInspect: { type: 'boolean' },
-    // AMS slot per filament of the project; -1 leaves a filament unmapped.
     amsMapping: { type: 'array', maxItems: 64, items: { type: 'integer' } },
   },
 };
 
 interface PrintRoute extends PrinterRoute {
-  Body: {
-    path: string;
-    plate?: number | null;
-    bedLeveling?: boolean;
-    timelapse?: boolean;
-    useAms?: boolean;
-    flowCali?: boolean;
-    vibrationCali?: boolean;
-    layerInspect?: boolean;
-    amsMapping?: number[];
-  };
+  Body: PrintRequest;
+}
+
+export const MAX_UPLOAD_BYTES = 1024 * 1024 * 1024;
+const tooLarge = () => new HttpError(413, `File too large (max ${MAX_UPLOAD_BYTES / 1024 ** 3} GB)`);
+
+/** Strip path separators and control characters; keep names reasonable. */
+function safeFileName(raw: string): string | null {
+  const name = raw
+    .normalize('NFC')
+    .replace(/[/\\]/g, '_')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .trim();
+  if (!name || name.startsWith('.') || name.length > 200) return null;
+  return name;
+}
+
+/** Content-Disposition with an ASCII fallback and an RFC 5987 UTF-8 name. */
+function attachmentHeader(name: string) {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
 }
 
 /** Printer storage over FTPS: browse, transfer, delete, and start a print from a file. */
 export async function fileRoutes(app: FastifyInstance) {
-  // Before validation, so anonymous callers get 401 rather than a schema error.
-  app.addHook('preValidation', requireAuth);
-
   app.get(
     '/api/printers/:id/files',
     pathSchema,
-    withPrinter<PathRoute>(async (p, request, reply) => {
-      const path = safeRemotePath(request.query.path); // throws 400 on bad input
-      try {
-        return await p.ftps.list(path);
-      } catch (err) {
-        return reply.code(502).send({ error: `FTPS: ${(err as Error).message}` });
-      }
-    }),
+    withPrinter<PathRoute>(async (p, request): Promise<RemoteFile[]> => p.ftps.list(safeRemotePath(request.query.path))),
   );
 
   app.get(
@@ -86,34 +85,27 @@ export async function fileRoutes(app: FastifyInstance) {
   app.post(
     '/api/printers/:id/files/upload',
     pathSchema,
-    withPrinter<PathRoute>(async (p, request, reply) => {
+    withPrinter<PathRoute>(async (p, request) => {
       const dir = safeRemotePath(request.query.path);
-      const file = await request.file({ limits: { fileSize: 1024 * 1024 * 1024 } });
-      if (!file) return reply.code(400).send({ error: 'No file provided' });
+      const file = await request.file();
+      if (!file) throw new HttpError(400, 'No file provided');
       const name = safeFileName(String(file.filename));
-      if (!name || !UPLOAD_EXTENSIONS.test(name)) {
-        file.file.resume(); // drain the upload
-        return reply.code(400).send({ error: 'Only .3mf and .gcode files can be uploaded' });
+      if (!name || !UPLOADABLE.test(name)) {
+        file.file.resume();
+        throw new HttpError(400, 'Only .3mf and .gcode files can be uploaded');
       }
-      const target = `${dir === '/' ? '' : dir}/${name}`;
+      const target = joinPath(dir, name);
+      const detail = { printer: p.connection.row.id, path: target };
       try {
         await p.ftps.upload(target, file.file);
-        if (file.file.truncated) throw Object.assign(new Error('File too large'), { statusCode: 413 });
+        if (file.file.truncated) throw tooLarge();
       } catch (err) {
-        // Don't leave a partial file on the printer.
         await p.ftps.remove(target).catch(() => {});
-        const e = err as Error & { statusCode?: number; code?: string };
-        audit(request, {
-          action: 'file.upload',
-          outcome: 'failure',
-          detail: { printer: p.connection.row.id, path: target },
-        });
-        if (e.statusCode === 413 || e.code === 'FST_REQ_FILE_TOO_LARGE') {
-          return reply.code(413).send({ error: 'File too large (max 1 GB)' });
-        }
-        return reply.code(502).send({ error: `FTPS: ${e.message}` });
+        audit(request, { action: 'file.upload', outcome: 'failure', detail });
+        if ((err as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') throw tooLarge();
+        throw err;
       }
-      audit(request, { action: 'file.upload', detail: { printer: p.connection.row.id, path: target } });
+      audit(request, { action: 'file.upload', detail });
       return { ok: true, name };
     }),
   );
@@ -121,52 +113,36 @@ export async function fileRoutes(app: FastifyInstance) {
   app.delete(
     '/api/printers/:id/files',
     pathSchema,
-    withPrinter<PathRoute>(async (p, request, reply) => {
+    withPrinter<PathRoute>(async (p, request) => {
       const path = safeRemotePath(request.query.path);
-      try {
-        await p.ftps.remove(path);
-        audit(request, { action: 'file.delete', detail: { printer: p.connection.row.id, path } });
-        return { ok: true };
-      } catch (err) {
-        return reply.code(502).send({ error: `FTPS: ${(err as Error).message}` });
-      }
+      await p.ftps.remove(path);
+      audit(request, { action: 'file.delete', detail: { printer: p.connection.row.id, path } });
+      return { ok: true };
     }),
   );
 
   app.post(
     '/api/printers/:id/print',
     { schema: { params: idParams, body: printBody } },
-    withPrinter<PrintRoute>(async (p, request, reply) => {
+    withPrinter<PrintRoute>(async (p, request) => {
       const body = request.body;
-      let path: string;
-      try {
-        path = safeRemotePath(body.path);
-      } catch (err) {
-        return reply.code(400).send({ error: (err as Error).message });
-      }
-      if (!/\.3mf$/i.test(path)) return reply.code(400).send({ error: 'Only .3mf files can be printed' });
-      const fileName = path.split('/').pop()!;
-      const plate = Number(body.plate ?? 1);
-      if (!Number.isInteger(plate) || plate < 1 || plate > 99) return reply.code(400).send({ error: 'Invalid plate' });
-      const amsMapping = body.amsMapping;
-      try {
-        await p.connection.send(
-          cmd.printProjectFile({
-            url: printUrlFor(p.connection.row.model, path),
-            fileName,
-            plate,
-            bedLeveling: body.bedLeveling !== false,
-            timelapse: Boolean(body.timelapse),
-            useAms: Boolean(body.useAms),
-            flowCali: body.flowCali !== false,
-            vibrationCali: Boolean(body.vibrationCali),
-            layerInspect: body.layerInspect !== false,
-            amsMapping,
-          }),
-        );
-      } catch (err) {
-        return reply.code(503).send({ error: (err as Error).message });
-      }
+      const path = safeRemotePath(body.path);
+      if (!PROJECT_FILE.test(path)) throw new HttpError(400, 'Only .3mf files can be printed');
+      const plate = body.plate ?? 1;
+      await p.connection.send(
+        cmd.printProjectFile({
+          url: printUrlFor(p.connection.row.model, path),
+          fileName: path.split('/').pop()!,
+          plate,
+          bedLeveling: body.bedLeveling !== false,
+          timelapse: Boolean(body.timelapse),
+          useAms: Boolean(body.useAms),
+          flowCali: body.flowCali !== false,
+          vibrationCali: Boolean(body.vibrationCali),
+          layerInspect: body.layerInspect !== false,
+          amsMapping: body.amsMapping,
+        }),
+      );
       audit(request, { action: 'printer.print_start', detail: { printer: p.connection.row.id, path, plate } });
       return { ok: true };
     }),

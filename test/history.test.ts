@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { beforeEach, describe, it } from 'node:test';
-import { detectEvents, jobSnapshot } from '../server/bambu/job-events.ts';
+import { JobTracker, jobSnapshot } from '../server/bambu/job-events.ts';
 import { db } from '../server/db.ts';
 import { HistoryRecorder, jobStats, listJobs } from '../server/history.ts';
 
@@ -12,7 +12,7 @@ import { HistoryRecorder, jobStats, listJobs } from '../server/history.ts';
 class FakePrinter extends EventEmitter {
   row: { id: number; name: string };
   state: Record<string, any> = {};
-  private last: ReturnType<typeof jobSnapshot> | null = null;
+  private jobs = new JobTracker();
 
   constructor(id: number, name: string) {
     super();
@@ -22,15 +22,13 @@ class FakePrinter extends EventEmitter {
   report(patch: Record<string, unknown>, at: number) {
     now = at;
     Object.assign(this.state, patch);
-    const next = jobSnapshot(this.state);
-    for (const event of detectEvents(this.last, next, at)) this.emit('event', event);
-    if (next.gcodeState !== null) this.last = next;
+    for (const event of this.jobs.observe(this.state, at).events) this.emit('event', event);
     this.emit('update');
   }
 
   /** What the app sees after a restart: no previous snapshot. */
   forget() {
-    this.last = null;
+    this.jobs.reset();
   }
 }
 

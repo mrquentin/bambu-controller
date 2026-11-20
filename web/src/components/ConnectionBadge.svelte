@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Connection } from '../lib/api';
+  import type { ConnectionInfo as Connection } from '../../../shared/api.ts';
   import { t } from '../lib/i18n.svelte';
 
   let { connection }: { connection: Connection } = $props();
@@ -14,7 +14,6 @@
   const stale = $derived(connection.status === 'online' && connection.stale);
   const retrying = $derived(connection.status !== 'online' && !!connection.nextRetryAt);
 
-  // Tick once a second only while a countdown / age is displayed.
   let now = $state(Date.now());
   $effect(() => {
     if (!stale && !retrying) return;

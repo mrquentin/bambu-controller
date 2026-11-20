@@ -26,7 +26,7 @@ before(async () => {
     pushed.push(url);
     return new Response(null, { status: pushStatus });
   }) as typeof fetch;
-  app = await buildApp({ logLevel: false });
+  app = await buildApp();
   await app.ready();
   const res = await app.inject({
     method: 'POST',

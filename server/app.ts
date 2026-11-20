@@ -5,27 +5,22 @@ import fastifyMultipart from '@fastify/multipart';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
-import { setAuditLogger } from './audit.ts';
-import { SESSION_COOKIE, userFromToken } from './auth.ts';
+import { SESSION_COOKIE, requireAuth, userFromToken } from './auth.ts';
 import { config } from './config.ts';
-import { authRoutes } from './routes/auth.ts';
+import { HttpError } from './http-error.ts';
+import { log } from './log.ts';
+import { accountRoutes, authRoutes } from './routes/auth.ts';
 import { controlRoutes } from './routes/control.ts';
-import { fileRoutes } from './routes/files.ts';
+import { MAX_UPLOAD_BYTES, fileRoutes } from './routes/files.ts';
 import { historyRoutes } from './routes/history.ts';
 import { jobRoutes } from './routes/job.ts';
 import { mediaRoutes } from './routes/media.ts';
 import { printerRoutes } from './routes/printers.ts';
 import { pushRoutes } from './routes/push.ts';
 import { ajvOptions, formatValidationError } from './validation.ts';
-import { APP_VERSION } from './version.ts';
-
-export interface BuildOptions {
-  /** Pino log level, or false to disable logging (tests). */
-  logLevel?: string | false;
-}
 
 /** Build the Fastify app (routes, security hooks, static UI) without listening. */
-export async function buildApp(options: BuildOptions = {}) {
+export async function buildApp() {
   const https =
     config.tlsCertFile && config.tlsKeyFile
       ? { cert: fs.readFileSync(config.tlsCertFile), key: fs.readFileSync(config.tlsKeyFile), minVersion: 'TLSv1.2' as const }
@@ -33,21 +28,14 @@ export async function buildApp(options: BuildOptions = {}) {
 
   const app = Fastify({
     ...(https ? { https } : {}),
-    logger: options.logLevel === false ? false : {
-      level: options.logLevel ?? (process.env.LOG_LEVEL?.trim() || 'info'),
-      // Never log cookies or credentials.
-      redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'],
-    },
-    trustProxy: process.env.TRUST_PROXY === 'true',
+    loggerInstance: log,
+    trustProxy: config.trustProxy,
     bodyLimit: 1024 * 1024,
-    // Don't keep idle keep-alive sockets forever.
     keepAliveTimeout: 10_000,
     requestTimeout: 0, // streams (camera, SSE, video) are long-lived by design
-    // Route schemas reject malformed input with a readable 400 (see validation.ts).
     ajv: ajvOptions,
     schemaErrorFormatter: formatValidationError,
   });
-  setAuditLogger(app.log);
 
   /**
    * Content Security Policy. Everything is same-origin; Svelte sets inline
@@ -83,7 +71,7 @@ export async function buildApp(options: BuildOptions = {}) {
 
   await app.register(fastifyCookie);
   await app.register(fastifyMultipart, {
-    limits: { files: 1, fields: 5, fieldSize: 1024, parts: 6, fileSize: 1024 * 1024 * 1024 },
+    limits: { files: 1, fields: 5, fieldSize: 1024, parts: 6, fileSize: MAX_UPLOAD_BYTES },
   });
   await app.register(fastifyRateLimit, {
     max: config.rateLimitPerMinute,
@@ -117,27 +105,33 @@ export async function buildApp(options: BuildOptions = {}) {
     }
   });
 
-  // Don't leak internals: 5xx responses get a generic message, details go to the log.
-  app.setErrorHandler((error: Error & { statusCode?: number; validation?: unknown }, request, reply) => {
+  // Don't leak internals: unexpected failures get a generic message, details go to the log.
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     const status = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
-    if (status >= 500) {
+    if (status >= 500 && !(error instanceof HttpError)) {
       request.log.error({ err: error }, 'request failed');
       return reply.code(status).send({ error: 'Internal server error' });
     }
+    if (status >= 500) request.log.warn({ err: error }, 'request failed');
     return reply.code(status).send({ error: error.message });
   });
 
   // Unauthenticated liveness probe (used by the Docker HEALTHCHECK).
-  app.get('/api/health', { config: { rateLimit: false } }, async () => ({ ok: true, version: APP_VERSION }));
+  app.get('/api/health', { config: { rateLimit: false } }, async () => ({ ok: true, version: config.version }));
 
   await app.register(authRoutes);
-  await app.register(printerRoutes);
-  await app.register(controlRoutes);
-  await app.register(fileRoutes);
-  await app.register(mediaRoutes);
-  await app.register(historyRoutes);
-  await app.register(pushRoutes);
-  await app.register(jobRoutes);
+  await app.register(async (signedIn) => {
+    // Before validation, so anonymous callers get 401 rather than a schema error.
+    signedIn.addHook('preValidation', requireAuth);
+    await signedIn.register(accountRoutes);
+    await signedIn.register(printerRoutes);
+    await signedIn.register(controlRoutes);
+    await signedIn.register(fileRoutes);
+    await signedIn.register(mediaRoutes);
+    await signedIn.register(historyRoutes);
+    await signedIn.register(pushRoutes);
+    await signedIn.register(jobRoutes);
+  });
 
   if (fs.existsSync(config.webDist)) {
     await app.register(fastifyStatic, {
@@ -149,7 +143,6 @@ export async function buildApp(options: BuildOptions = {}) {
       },
     });
     app.setNotFoundHandler((request, reply) => {
-      // API routes and missing files (anything with an extension) get a real 404.
       if (request.url.startsWith('/api/') || /\.[a-z0-9]+(\?|$)/i.test(request.url)) {
         return reply.code(404).send({ error: 'Not found' });
       }

@@ -1,17 +1,5 @@
-<script lang="ts" module>
-  const VIDEO = /\.(mp4|m4v|mov|webm|avi|mkv)$/i;
-  const IMAGE = /\.(jpe?g|png|gif|bmp)$/i;
-  /** Converted by ffmpeg on the server: playable, but no seeking. */
-  const TRANSCODED = /\.(avi|mkv)$/i;
-
-  export function mediaKind(name: string): 'video' | 'image' | null {
-    if (VIDEO.test(name)) return 'video';
-    if (IMAGE.test(name)) return 'image';
-    return null;
-  }
-</script>
-
 <script lang="ts">
+  import { joinPath, mediaOf } from '../../../shared/files.ts';
   import { t } from '../lib/i18n.svelte';
 
   let {
@@ -23,9 +11,10 @@
   }: { printerId: number; dir: string; items: string[]; index: number; onClose: () => void } = $props();
 
   const name = $derived(items[index]);
-  const full = $derived(`${dir === '/' ? '' : dir}/${name}`);
+  const full = $derived(joinPath(dir, name));
   const src = $derived(`/api/printers/${printerId}/files/stream?path=${encodeURIComponent(full)}`);
-  const kind = $derived(mediaKind(name));
+  const media = $derived(mediaOf(name));
+  const kind = $derived(media?.kind ?? null);
   // X1-series timelapses have a matching thumbnail in /timelapse/thumbnail/<name>.jpg
   const poster = $derived(
     dir.startsWith('/timelapse') && kind === 'video'
@@ -79,7 +68,7 @@
       {/key}
     </div>
 
-    {#if TRANSCODED.test(name)}
+    {#if media?.transcoded}
       <p class="muted small note">{t('media.transcoded')}</p>
     {/if}
   </div>

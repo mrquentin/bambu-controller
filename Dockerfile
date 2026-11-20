@@ -28,6 +28,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
     # Package managers aren't needed at runtime; removing them shrinks the attack surface.
     && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack /opt/yarn* \
               /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
+COPY shared ./shared
 COPY server ./server
 COPY --from=build /app/web/dist ./web/dist
 RUN mkdir -p /data && chown node:node /data

@@ -1,55 +1,61 @@
+import type { CameraKind, CameraSetting } from '../../shared/printer.ts';
+
 /**
- * Printer model metadata.
+ * Printer models. `codes` are what printers advertise over SSDP
+ * (`DevModel.bambu.com`), recovered from LanBu's
+ * BambuUtility.GetSupportedPrinterDictionary.
  *
- * Model codes are what printers advertise over SSDP (`DevModel.bambu.com`).
- * Mapping recovered from LanBu's BambuUtility.GetSupportedPrinterDictionary.
+ * `basic` models (A1 / P1 series) stream the camera as JPEG frames over TLS on
+ * port 6000 and print from storage through "ftp:///" URLs. The others expose
+ * RTSPS on port 322 (requires "LAN Mode Liveview" on X1) and print through
+ * "file:///sdcard/" URLs (internal storage + SD), as LanBu does.
  */
-export const MODEL_CODES: Record<string, string> = {
-  'BL-P001': 'X1C',
-  'BL-P002': 'X1',
-  C13: 'X1E',
-  C11: 'P1P',
-  C12: 'P1S',
-  N1: 'A1 Mini',
-  N2S: 'A1',
-  N6: 'X2D',
-  N7: 'P2S',
-  O1C: 'H2C',
-  O1C2: 'H2C',
-  O1D: 'H2D',
-  O1E: 'H2D Pro',
-  O1S: 'H2S',
-};
-
-export const MODELS = ['A1 Mini', 'A1', 'P1P', 'P1S', 'P2S', 'X1', 'X1C', 'X1E', 'X2D', 'H2S', 'H2D', 'H2D Pro', 'H2C'];
-
-/**
- * "Basic" models stream the camera as JPEG frames over TLS on port 6000.
- * Everything else exposes RTSPS on port 322 (requires "LAN Mode Liveview" on X1).
- */
-const JPEG_CAMERA_MODELS = new Set(['A1 Mini', 'A1', 'P1P', 'P1S']);
-
-export type CameraKind = 'jpeg' | 'rtsps' | 'none';
-
-export function cameraKindFor(model: string, setting: string): CameraKind {
-  if (setting === 'jpeg' || setting === 'rtsps' || setting === 'none') return setting;
-  return JPEG_CAMERA_MODELS.has(model) ? 'jpeg' : 'rtsps';
+interface Model {
+  name: string;
+  codes: string[];
+  basic: boolean;
+  /** Heated / controlled chamber (set_ctt). */
+  chamberControl: boolean;
 }
+
+const MODEL_TABLE: Model[] = [
+  { name: 'A1 Mini', codes: ['N1'], basic: true, chamberControl: false },
+  { name: 'A1', codes: ['N2S'], basic: true, chamberControl: false },
+  { name: 'P1P', codes: ['C11'], basic: true, chamberControl: false },
+  { name: 'P1S', codes: ['C12'], basic: true, chamberControl: false },
+  { name: 'P2S', codes: ['N7'], basic: false, chamberControl: false },
+  { name: 'X1', codes: ['BL-P002'], basic: false, chamberControl: false },
+  { name: 'X1C', codes: ['BL-P001'], basic: false, chamberControl: false },
+  { name: 'X1E', codes: ['C13'], basic: false, chamberControl: true },
+  { name: 'X2D', codes: ['N6'], basic: false, chamberControl: true },
+  { name: 'H2S', codes: ['O1S'], basic: false, chamberControl: true },
+  { name: 'H2D', codes: ['O1D'], basic: false, chamberControl: true },
+  { name: 'H2D Pro', codes: ['O1E'], basic: false, chamberControl: true },
+  { name: 'H2C', codes: ['O1C', 'O1C2'], basic: false, chamberControl: true },
+];
+
+/** Unknown (newer) models are assumed to work like the current flagship ones. */
+const UNKNOWN: Model = { name: '', codes: [], basic: false, chamberControl: false };
+
+const byName = (name: string) => MODEL_TABLE.find((m) => m.name === name) ?? UNKNOWN;
+
+export const MODELS = MODEL_TABLE.map((m) => m.name);
 
 export function modelFromCode(code: string): string {
-  return MODEL_CODES[code] ?? code;
+  return MODEL_TABLE.find((m) => m.codes.includes(code))?.name ?? code;
 }
 
-/** Models with a heated/controlled chamber (set_ctt). */
+export function cameraKindFor(model: string, setting: CameraSetting): CameraKind {
+  if (setting !== 'auto') return setting;
+  return byName(model).basic ? 'jpeg' : 'rtsps';
+}
+
 export function supportsChamberControl(model: string) {
-  return model === 'X1E' || model.startsWith('H2') || model === 'X2D';
+  return byName(model).chamberControl;
 }
 
-/**
- * Print URL scheme for project_file. LanBu uses "file:///sdcard/" for the
- * X1/H2 family (internal storage + SD) and "ftp://" for the basic models.
- */
+/** URL of a file on the printer's storage, for the project_file print command. */
 export function printUrlFor(model: string, path: string) {
   const clean = path.replace(/^\/+/, '');
-  return JPEG_CAMERA_MODELS.has(model) ? `ftp:///${clean}` : `file:///sdcard/${clean}`;
+  return byName(model).basic ? `ftp:///${clean}` : `file:///sdcard/${clean}`;
 }

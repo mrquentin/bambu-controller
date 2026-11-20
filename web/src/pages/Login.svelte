@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ACCOUNT } from '../../../shared/forms.ts';
   import { api } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
 
@@ -45,7 +46,7 @@
 
     <label class="field">
       {t('common.username')}
-      <input bind:value={username} autocomplete="username" required minlength="3" />
+      <input bind:value={username} autocomplete="username" required minlength={ACCOUNT.username.minLength} maxlength={ACCOUNT.username.maxLength} />
     </label>
     <label class="field">
       {t('common.password')}
@@ -54,7 +55,8 @@
         bind:value={password}
         autocomplete={setup ? 'new-password' : 'current-password'}
         required
-        minlength={setup ? 10 : undefined}
+        minlength={setup ? ACCOUNT.password.minLength : undefined}
+        maxlength={ACCOUNT.password.maxLength}
       />
     </label>
     {#if setup}

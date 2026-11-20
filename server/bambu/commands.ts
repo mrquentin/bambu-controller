@@ -5,6 +5,9 @@
  * against openbu. All of them are plain JSON objects.
  */
 
+import type { FanId, JogAxis, LightNode, SpeedLevel } from '../../shared/commands.ts';
+import { projectName } from '../../shared/files.ts';
+
 let seq = 20000;
 const nextSeq = () => String(seq++);
 
@@ -22,12 +25,11 @@ export const pause = () => print({ command: 'pause', param: '' });
 export const resume = () => print({ command: 'resume', param: '' });
 export const stop = () => print({ command: 'stop', param: '' });
 
-/** 1 = silent, 2 = standard, 3 = sport, 4 = ludicrous */
-export const printSpeed = (level: 1 | 2 | 3 | 4) => print({ command: 'print_speed', param: String(level) });
+export const printSpeed = (level: SpeedLevel) => print({ command: 'print_speed', param: String(level) });
 
 export const gcode = (lines: string) => print({ command: 'gcode_line', param: lines.endsWith('\n') ? lines : `${lines}\n` });
 
-export const light = (node: string, on: boolean): Command => ({
+export const light = (node: LightNode, on: boolean): Command => ({
   system: {
     sequence_id: nextSeq(),
     command: 'ledctrl',
@@ -51,14 +53,13 @@ export const bedTemp = (temp: number) => gcode(`M140 S${temp}`);
 /** Chamber temperature target (X1E / H2 series). */
 export const chamberTemp = (temp: number) => print({ command: 'set_ctt', ctt_val: temp });
 
-/** fan: 1 = part cooling, 2 = auxiliary, 3 = chamber. percent 0..100 */
-export const fanSpeed = (fan: 1 | 2 | 3, percent: number) =>
+export const fanSpeed = (fan: FanId, percent: number) =>
   gcode(`M106 P${fan} S${Math.round((Math.max(0, Math.min(100, percent)) / 100) * 255)}`);
 
 export const homeAll = () => gcode('G28');
 
 /** Relative jog, same sequence LanBu sends (soft endstops on, relative mode, restore). */
-export function jog(axis: 'X' | 'Y' | 'Z', mm: number) {
+export function jog(axis: JogAxis, mm: number) {
   const feed = axis === 'Z' ? 900 : 3000;
   return gcode(
     `M211 S \nM211 X1 Y1 Z1\nM1002 push_ref_mode\nG91 \nG1 ${axis}${mm.toFixed(2)} F${feed}\nM1002 pop_ref_mode\nM211 R\n`,
@@ -87,7 +88,7 @@ export function printProjectFile(o: PrintFileOptions): Command {
     param: `Metadata/plate_${o.plate}.gcode`,
     url: o.url,
     file: o.fileName,
-    subtask_name: o.fileName.replace(/(\.gcode)?\.3mf$/i, ''),
+    subtask_name: projectName(o.fileName),
     md5: '',
     profile_id: '0',
     project_id: '0',
@@ -104,10 +105,9 @@ export function printProjectFile(o: PrintFileOptions): Command {
   });
 }
 
-/** Unload the currently loaded AMS filament. */
 export const unloadFilament = () => print({ command: 'unload_filament' });
 
-/** Load an AMS tray (ams 0..3, tray 0..3) or 254 for the external spool. */
+/** Load an AMS tray (see `trayId` in shared/printer.ts). */
 export const loadFilament = (trayId: number) =>
   print({ command: 'ams_change_filament', target: trayId, curr_temp: 220, tar_temp: 220 });
 

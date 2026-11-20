@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { api, type RemoteFile } from '../lib/api';
+  import type { RemoteFile } from '../../../shared/api.ts';
+  import { PROJECT_FILE, joinPath, mediaOf } from '../../../shared/files.ts';
+  import { PLATE, type PrintRequest } from '../../../shared/forms.ts';
+  import { api } from '../lib/api';
   import { formatBytes } from '../lib/bambu';
   import { toast, toastError } from '../lib/toast.svelte';
   import { t } from '../lib/i18n.svelte';
   import { confirmAction } from '../lib/confirm.svelte';
-  import MediaViewer, { mediaKind } from './MediaViewer.svelte';
+  import MediaViewer from './MediaViewer.svelte';
   import Trans from './Trans.svelte';
 
   let { printerId, online }: { printerId: number; online: boolean } = $props();
@@ -17,17 +20,14 @@
   let error = $state<string | null>(null);
   let uploading = $state(false);
   let printTarget = $state<string | null>(null);
-  let opts = $state({ plate: 1, bedLeveling: true, timelapse: false, useAms: true, flowCali: true, vibrationCali: false });
+  let opts = $state<Omit<PrintRequest, 'path'>>({ plate: 1, bedLeveling: true, timelapse: false, useAms: true, flowCali: true, vibrationCali: false });
 
-  // Media viewer: plays videos / shows images from the current folder.
-  const mediaFiles = $derived((files ?? []).filter((f) => !f.isDirectory && mediaKind(f.name)).map((f) => f.name));
+  const mediaFiles = $derived((files ?? []).filter((f) => !f.isDirectory && mediaOf(f.name)).map((f) => f.name));
   let viewerIndex = $state<number | null>(null);
   const openViewer = (name: string) => (viewerIndex = mediaFiles.indexOf(name));
 
-  const join = (dir: string, name: string) => `${dir === '/' ? '' : dir}/${name}`;
   const q = (p: string) => encodeURIComponent(p);
 
-  // Only the latest listing request may update the view (fast clicks between folders).
   let loadSeq = 0;
   async function load(dir = path) {
     const seq = ++loadSeq;
@@ -51,7 +51,6 @@
     load(`/${parts.join('/')}`);
   }
 
-  // Load the listing as soon as the tab opens (or once the printer comes online).
   let autoLoaded = false;
   $effect(() => {
     if (online && !autoLoaded) {
@@ -69,7 +68,7 @@
     });
     if (!ok) return;
     try {
-      await api(`/api/printers/${printerId}/files?path=${q(join(path, file.name))}`, { method: 'DELETE' });
+      await api(`/api/printers/${printerId}/files?path=${q(joinPath(path, file.name))}`, { method: 'DELETE' });
       toast(t('files.deleted'), 'success');
       load();
     } catch (err) {
@@ -99,7 +98,7 @@
   async function startPrint() {
     if (!printTarget) return;
     try {
-      await api(`/api/printers/${printerId}/print`, { body: { path: printTarget, ...opts } });
+      await api(`/api/printers/${printerId}/print`, { body: { path: printTarget, ...opts } satisfies PrintRequest });
       toast(t('files.printStarted'), 'success');
       printTarget = null;
     } catch (err) {
@@ -153,10 +152,10 @@
             <tr>
               <td class="name">
                 {#if f.isDirectory}
-                  <button class="link" onclick={() => load(join(path, f.name))}>📁 {f.name}</button>
-                {:else if mediaKind(f.name)}
+                  <button class="link" onclick={() => load(joinPath(path, f.name))}>📁 {f.name}</button>
+                {:else if mediaOf(f.name)}
                   <button class="link" onclick={() => openViewer(f.name)}>
-                    {mediaKind(f.name) === 'video' ? '🎬' : '🖼'} {f.name}
+                    {mediaOf(f.name)?.kind === 'video' ? '🎬' : '🖼'} {f.name}
                   </button>
                 {:else}
                   <span>{f.name}</span>
@@ -165,14 +164,14 @@
               <td class="muted small nowrap">{f.isDirectory ? '' : formatBytes(f.size)}</td>
               <td class="actions">
                 {#if !f.isDirectory}
-                  {#if /\.3mf$/i.test(f.name)}
-                    <button class="small primary" onclick={() => (printTarget = join(path, f.name))} disabled={!online}>{t('files.print')}</button>
+                  {#if PROJECT_FILE.test(f.name)}
+                    <button class="small primary" onclick={() => (printTarget = joinPath(path, f.name))} disabled={!online}>{t('files.print')}</button>
                   {/if}
-                  {#if mediaKind(f.name)}
-                    {@const label = mediaKind(f.name) === 'video' ? t('files.play') : t('files.view')}
+                  {#if mediaOf(f.name)}
+                    {@const label = mediaOf(f.name)?.kind === 'video' ? t('files.play') : t('files.view')}
                     <button class="small" onclick={() => openViewer(f.name)} title={label} aria-label={label}>▶</button>
                   {/if}
-                  <a class="btn small" href="/api/printers/{printerId}/files/download?path={q(join(path, f.name))}" title={t('common.download')} aria-label={t('common.download')}>⬇</a>
+                  <a class="btn small" href="/api/printers/{printerId}/files/download?path={q(joinPath(path, f.name))}" title={t('common.download')} aria-label={t('common.download')}>⬇</a>
                   <button class="small danger" onclick={() => remove(f)} title={t('common.delete')} aria-label={t('common.delete')}>✕</button>
                 {/if}
               </td>
@@ -198,7 +197,7 @@
       <code class="small">{printTarget}</code>
       <label class="field">
         {t('files.plate')}
-        <input type="number" min="1" max="99" bind:value={opts.plate} />
+        <input type="number" min={PLATE.min} max={PLATE.max} bind:value={opts.plate} />
       </label>
       <label class="row"><input type="checkbox" bind:checked={opts.useAms} /> {t('files.useAms')}</label>
       <label class="row"><input type="checkbox" bind:checked={opts.bedLeveling} /> {t('files.bedLeveling')}</label>

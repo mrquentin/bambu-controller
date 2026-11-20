@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api';
-  import { formatMs, formatRate, jobProgress, jobStatusInfo, type HistoryStats, type PrintJob } from '../lib/history';
+  import { printerPage } from '../../../shared/pages.ts';
+  import { jobOpen, type HistoryStats, type JobPage, type PrintJob } from '../../../shared/api.ts';
+  import { formatMs, formatRate, jobProgress, jobStatusInfo } from '../lib/history';
   import { toast, toastError } from '../lib/toast.svelte';
   import { formatDate, t } from '../lib/i18n.svelte';
   import { confirmAction } from '../lib/confirm.svelte';
@@ -26,7 +28,7 @@
     try {
       const [s, list] = await Promise.all([
         api<HistoryStats>(`${base}/stats`),
-        api<{ jobs: PrintJob[]; total: number }>(`${base}?limit=${Math.max(PAGE, Math.min(100, jobs.length))}`),
+        api<JobPage>(`${base}?limit=${Math.max(PAGE, Math.min(100, jobs.length))}`),
       ]);
       stats = s;
       jobs = list.jobs;
@@ -40,7 +42,7 @@
   async function loadMore() {
     loadingMore = true;
     try {
-      const list = await api<{ jobs: PrintJob[]; total: number }>(`${base}?limit=${PAGE}&offset=${jobs.length}`);
+      const list = await api<JobPage>(`${base}?limit=${PAGE}&offset=${jobs.length}`);
       const known = new Set(jobs.map((j) => j.id));
       jobs = [...jobs, ...list.jobs.filter((j) => !known.has(j.id))];
       total = list.total;
@@ -70,7 +72,6 @@
   }
 
   onMount(() => {
-    // Keeps durations of running jobs and new jobs current.
     const timer = setInterval(load, 30_000);
     return () => clearInterval(timer);
   });
@@ -82,7 +83,6 @@
   });
 
   const when = (at: number) => formatDate(at, { dateStyle: 'medium', timeStyle: 'short' });
-  const active = (job: PrintJob) => job.status === 'running' || job.status === 'paused';
 </script>
 
 {#if error}
@@ -123,7 +123,7 @@
             {#each stats.printers as p (p.printerId ?? `name:${p.printerName}`)}
               <tr>
                 <td>
-                  {#if p.printerId !== null}<a href="#/printer/{p.printerId}/history">{p.printerName}</a>
+                  {#if p.printerId !== null}<a href={printerPage(p.printerId, 'history')}>{p.printerName}</a>
                   {:else}{p.printerName} <span class="muted small">{t('history.removedPrinter')}</span>{/if}
                 </td>
                 <td>{p.total}</td>
@@ -166,7 +166,7 @@
                 </td>
                 <td class="small" data-label={t('history.layers')}>{jobProgress(job)}</td>
                 <td class="actions">
-                  {#if !active(job)}
+                  {#if !jobOpen(job.status)}
                     <button class="small ghost" onclick={() => remove(job)} aria-label={t('history.deleteEntry')} title={t('history.deleteEntry')}>✕</button>
                   {/if}
                 </td>

@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { SendFn } from '../lib/api';
+  import { LIMITS, type FanId } from '../../../shared/commands.ts';
   import { fanPercent } from '../lib/bambu';
   import { t } from '../lib/i18n.svelte';
 
   let { state: s, online, send }: { state: Record<string, any>; online: boolean; send: SendFn } = $props();
 
-  // fan index used by M106 P<n>: 1 = part, 2 = aux, 3 = chamber
-  const fans = $derived([
+  const fans = $derived<{ id: FanId; label: string; value: number | null }[]>([
     { id: 1, label: t('fans.part'), value: fanPercent(s.cooling_fan_speed) },
     { id: 2, label: t('fans.aux'), value: fanPercent(s.big_fan1_speed) },
     { id: 3, label: t('fans.chamber'), value: fanPercent(s.big_fan2_speed) },
@@ -16,10 +16,10 @@
   // Slider positions while the user drags; cleared once the printer reports back.
   let dragging = $state<Record<number, number>>({});
 
-  async function commit(fan: number) {
+  async function commit(fan: FanId) {
     const percent = dragging[fan];
     if (percent === undefined) return;
-    await send('fan', { fan, percent });
+    await send({ action: 'fan', fan, percent });
     setTimeout(() => delete dragging[fan], 1500);
   }
 </script>
@@ -37,8 +37,8 @@
         <input
           type="range"
           aria-label={fan.label}
-          min="0"
-          max="100"
+          min={LIMITS.fanPercent.min}
+          max={LIMITS.fanPercent.max}
           step="10"
           value={shown}
           style="--pct: {shown}%"

@@ -1,12 +1,14 @@
 import crypto from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import mqtt, { type IClientOptions, type MqttClient } from 'mqtt';
-import type { PrinterRow } from '../db.ts';
+import type { CommandLogEntry, ConnectionInfo, FirmwareModule, PrinterDetail, PrinterInfo, PrinterSummary } from '../../shared/api.ts';
+import type { ConnectionStatus } from '../../shared/printer.ts';
+import { HttpError } from '../http-error.ts';
+import { log } from '../log.ts';
 import * as cmd from './commands.ts';
-import { detectEvents, jobSnapshot, type JobSnapshot, type PrinterEvent } from './job-events.ts';
-import { describeTlsError, printerTlsOptions } from './tls.ts';
-
-export type ConnectionStatus = 'connecting' | 'online' | 'offline' | 'error';
+import { nextDelay } from './backoff.ts';
+import { JobTracker, jobSnapshot, type PrinterEvent } from './job-events.ts';
+import { describeTlsError, printerTlsOptions, type PrinterEndpoint } from './tls.ts';
 
 /** Reconnect and silence-detection timings (ms). */
 export interface ConnectionTiming {
@@ -36,120 +38,103 @@ export const DEFAULT_TIMING: ConnectionTiming = {
   watchdogMs: 5_000,
 };
 
-/**
- * Delay before reconnect attempt `attempt` (0-based): exponential backoff with
- * full jitter, uniform in [base, min(cap, base·2^attempt)]. After an
- * authentication failure it goes straight to [cap/2, cap] so a wrong access
- * code doesn't hammer the printer (which may lock the client out).
- */
-export function nextDelay(
-  attempt: number,
-  rng: () => number,
-  { base, cap, authFailed = false }: { base: number; cap: number; authFailed?: boolean },
-) {
-  if (authFailed) return Math.round(cap / 2 + rng() * (cap / 2));
-  const ceiling = Math.min(cap, base * 2 ** Math.min(attempt, 30));
-  return Math.round(base + rng() * (ceiling - base));
+const AUTH_ERROR = /Not authorized|Bad username or password|Connection refused: Not/i;
+
+const reportTopic = (serial: string) => `device/${serial}/report`;
+const requestTopic = (serial: string) => `device/${serial}/request`;
+
+/** MQTT over TLS on 8883, user "bblp", password = access code. Reconnects are left to the caller. */
+function mqttOptions(target: PrinterEndpoint, clientId: string, connectTimeout: number): IClientOptions {
+  return {
+    protocol: 'mqtts',
+    host: target.ip,
+    port: 8883,
+    username: 'bblp',
+    password: target.access_code,
+    clientId: `${clientId}-${crypto.randomBytes(4).toString('hex')}`,
+    protocolVersion: 4,
+    keepalive: 30,
+    connectTimeout,
+    reconnectPeriod: 0,
+    ...printerTlsOptions(target),
+  };
 }
 
-const AUTH_ERROR = /Not authorized|Bad username or password/i;
+type Listener = (...args: any[]) => void;
 
 /**
- * Close an mqtt.js client without leaking its timers. Only the listeners this
- * app added are removed: `removeAllListeners()` would also drop mqtt.js's own
+ * Tracks the listeners this app adds to an mqtt.js client, so closing it
+ * removes only those: `removeAllListeners()` would also drop mqtt.js's own
  * 'close' handler, which clears its connect timer (a failed TLS handshake then
  * kept the process busy for `connectTimeout`).
  */
-function discardClient(client: MqttClient, own: readonly [string, (...args: any[]) => void][]) {
-  for (const [event, listener] of own) client.removeListener(event as 'connect', listener);
-  client.on('error', () => {});
-  client.end(true);
+function listenTo(client: MqttClient) {
+  const own: [string, Listener][] = [];
+  return {
+    on(event: string, listener: Listener) {
+      own.push([event, listener]);
+      client.on(event as 'connect', listener);
+    },
+    discard() {
+      for (const [event, listener] of own) client.removeListener(event as 'connect', listener);
+      client.on('error', () => {});
+      client.end(true);
+    },
+  };
+}
+
+const unreachable = (ip: string) => `No answer from ${ip}:8883 — is the printer on and in LAN mode?`;
+
+/** What went wrong with an MQTT connection, in the user's terms. */
+function describeMqttError(err: Error, ip: string): { message: string; authFailed: boolean } {
+  const msg = err.message || String(err);
+  const authFailed = AUTH_ERROR.test(msg);
+  const message =
+    describeTlsError(err) ??
+    (authFailed
+      ? 'Wrong access code (it changes when LAN mode is toggled).'
+      : /connack timeout|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(msg)
+        ? unreachable(ip)
+        : msg);
+  return { message, authFailed };
 }
 
 /**
  * One-shot credential check used before saving a printer: connect over MQTT,
  * subscribe to the report topic and wait for the first message.
  */
-export function testConnection(
-  ip: string,
-  serial: string,
-  accessCode: string,
-  tlsVerify: number,
-  timeoutMs = 12_000,
-) {
+export function testConnection(target: PrinterEndpoint, timeoutMs = 12_000) {
   return new Promise<{ ok: true } | { ok: false; error: string }>((resolve) => {
-    const client = mqtt.connect({
-      protocol: 'mqtts',
-      host: ip,
-      port: 8883,
-      username: 'bblp',
-      password: accessCode,
-      clientId: `bambu-web-test-${crypto.randomBytes(4).toString('hex')}`,
-      protocolVersion: 4,
-      connectTimeout: timeoutMs,
-      reconnectPeriod: 0,
-      ...printerTlsOptions({ serial, tls_verify: tlsVerify }),
-    });
+    const client = mqtt.connect(mqttOptions(target, 'bambu-web-test', timeoutMs));
+    const listeners = listenTo(client);
     let connected = false;
-    const own: [string, (...args: any[]) => void][] = [];
-    const on = (event: string, listener: (...args: any[]) => void) => {
-      own.push([event, listener]);
-      client.on(event as 'connect', listener);
-    };
     const finish = (result: { ok: true } | { ok: false; error: string }) => {
       clearTimeout(timer);
-      discardClient(client, own);
+      listeners.discard();
       resolve(result);
     };
     const timer = setTimeout(
       () =>
         finish({
           ok: false,
-          error: connected
-            ? 'Connected, but the printer sent no data — check the serial number.'
-            : `No answer from ${ip}:8883 — is the printer on and in LAN mode?`,
+          error: connected ? 'Connected, but the printer sent no data — check the serial number.' : unreachable(target.ip),
         }),
       timeoutMs,
     );
-    on('connect', () => {
+    listeners.on('connect', () => {
       connected = true;
-      client.subscribe(`device/${serial}/report`, (err) => {
+      client.subscribe(reportTopic(target.serial), (err) => {
         if (err) return finish({ ok: false, error: `Subscribe failed: ${err.message}` });
-        client.publish(
-          `device/${serial}/request`,
-          JSON.stringify({ pushing: { sequence_id: '0', command: 'pushall', version: 1, push_target: 1 } }),
-        );
+        client.publish(requestTopic(target.serial), JSON.stringify(cmd.pushAll()));
       });
     });
-    on('message', () => finish({ ok: true }));
-    on('error', (err) => {
-      const msg = err.message || String(err);
-      finish({
-        ok: false,
-        error: describeTlsError(err) ?? (/Not authorized|Bad username or password|Connection refused: Not/i.test(msg)
-          ? 'Wrong access code.'
-          : /connack timeout|ECONNREFUSED|EHOSTUNREACH|ETIMEDOUT|ENETUNREACH/i.test(msg)
-            ? `No answer from ${ip}:8883 — is the printer on and in LAN mode?`
-            : msg),
-      });
-    });
+    listeners.on('message', () => finish({ ok: true }));
+    listeners.on('error', (err) => finish({ ok: false, error: describeMqttError(err, target.ip).message }));
   });
 }
 
-export interface FirmwareModule {
-  name: string;
-  project_name?: string;
-  sw_ver?: string;
-  hw_ver?: string;
-  sn?: string;
-}
-
-export interface CommandLogEntry {
-  at: number;
-  direction: 'out' | 'in';
-  command: string;
-  payload: unknown;
-}
+/** A configured printer, with its access code. */
+type PrinterSettings = PrinterInfo & PrinterEndpoint;
 
 type Json = Record<string, any>;
 
@@ -192,7 +177,7 @@ export function mergeState(target: Json, patch: Json) {
  * `event` (a `PrinterEvent`) when a print job starts, pauses, ends or raises an HMS alert.
  */
 export class PrinterConnection extends EventEmitter {
-  row: PrinterRow;
+  row: PrinterSettings;
   status: ConnectionStatus = 'offline';
   error: string | null = null;
   state: Json = {};
@@ -204,10 +189,8 @@ export class PrinterConnection extends EventEmitter {
   nextRetryAt = 0;
   log: CommandLogEntry[] = [];
   private client: MqttClient | null = null;
-  /** Listeners this class added to `client` (removed again on teardown). */
-  private clientListeners: [string, (...args: any[]) => void][] = [];
-  /** Last job snapshot, for lifecycle event detection (null = nothing seen yet). */
-  private lastJob: JobSnapshot | null = null;
+  private mqttListeners: ReturnType<typeof listenTo> | null = null;
+  private readonly jobs = new JobTracker();
   private readonly timing: ConnectionTiming;
   private readonly connectFn: (options: IClientOptions) => MqttClient;
   private readonly rng: () => number;
@@ -220,7 +203,7 @@ export class PrinterConnection extends EventEmitter {
   private watchdog: NodeJS.Timeout | null = null;
 
   constructor(
-    row: PrinterRow,
+    row: PrinterSettings,
     options: {
       timing?: Partial<ConnectionTiming>;
       /** MQTT client factory (tests). */
@@ -234,14 +217,6 @@ export class PrinterConnection extends EventEmitter {
     this.connectFn = options.connect ?? ((o) => mqtt.connect(o));
     this.rng = options.random ?? Math.random;
     this.setMaxListeners(100);
-  }
-
-  get topicReport() {
-    return `device/${this.row.serial}/report`;
-  }
-
-  get topicRequest() {
-    return `device/${this.row.serial}/request`;
   }
 
   start() {
@@ -259,43 +234,23 @@ export class PrinterConnection extends EventEmitter {
     this.setStatus('offline');
   }
 
-  /**
-   * Open a fresh MQTT client. mqtt.js auto-reconnect is off (reconnectPeriod 0):
-   * every attempt goes through `retryLater()` so it can back off.
-   */
+  /** Open a fresh MQTT client; every attempt goes through `retryLater()` so it can back off. */
   private connect() {
     this.clearRetry();
     this.teardownClient();
-    // Keep showing the last error while retrying.
     if (this.status !== 'error') this.setStatus('connecting');
-    const client = this.connectFn({
-      protocol: 'mqtts',
-      host: this.row.ip,
-      port: 8883,
-      username: 'bblp',
-      password: this.row.access_code,
-      clientId: `bambu-web-${crypto.randomBytes(4).toString('hex')}`,
-      protocolVersion: 4,
-      keepalive: 30,
-      connectTimeout: 10_000,
-      reconnectPeriod: 0,
-      // Verify the printer's certificate (Bambu CA, CN = serial); see tls.ts.
-      ...printerTlsOptions(this.row),
-    });
+    const client = this.connectFn(mqttOptions(this.row, 'bambu-web', 10_000));
+    const listeners = listenTo(client);
     this.client = client;
-    const own: [string, (...args: any[]) => void][] = (this.clientListeners = []);
-    const on = (event: string, listener: (...args: any[]) => void) => {
-      own.push([event, listener]);
-      client.on(event as 'connect', listener);
-    };
+    this.mqttListeners = listeners;
 
-    on('connect', () => {
+    listeners.on('connect', () => {
       this.error = null;
       this.authFailed = false;
       this.connectedAt = this.lastPushallAt = Date.now();
       this.setStatus('online');
       this.startWatchdog();
-      client.subscribe(this.topicReport, { qos: 0 }, (err) => {
+      client.subscribe(reportTopic(this.row.serial), { qos: 0 }, (err) => {
         if (this.client !== client) return;
         if (err) {
           this.error = `Subscribe failed: ${err.message}`;
@@ -308,26 +263,21 @@ export class PrinterConnection extends EventEmitter {
       });
     });
 
-    on('message', (_topic, payload) => this.handleMessage(payload));
+    listeners.on('message', (_topic, payload) => this.handleMessage(payload));
 
-    on('error', (err) => {
-      const msg = err.message || String(err);
-      this.authFailed = AUTH_ERROR.test(msg);
-      this.error = describeTlsError(err) ?? (this.authFailed
-        ? 'Authentication failed — check the access code (it changes when LAN mode is toggled).'
-        : msg);
+    listeners.on('error', (err) => {
+      ({ message: this.error, authFailed: this.authFailed } = describeMqttError(err, this.row.ip));
       this.setStatus('error');
       // Normally followed by 'close'; don't rely on it.
       if (!client.connected) this.retryLater();
     });
 
-    on('close', () => {
+    listeners.on('close', () => {
       if (this.status !== 'error') this.setStatus('offline');
       this.retryLater();
     });
   }
 
-  /** Drop the current client (if any) and schedule the next attempt with backoff. */
   private retryLater() {
     this.teardownClient();
     this.stale = false;
@@ -358,11 +308,9 @@ export class PrinterConnection extends EventEmitter {
   private teardownClient() {
     if (this.watchdog) clearInterval(this.watchdog);
     this.watchdog = null;
-    const client = this.client;
-    if (!client) return;
+    this.mqttListeners?.discard();
+    this.mqttListeners = null;
     this.client = null;
-    discardClient(client, this.clientListeners);
-    this.clientListeners = [];
   }
 
   private startWatchdog() {
@@ -395,7 +343,7 @@ export class PrinterConnection extends EventEmitter {
   }
 
   /** Reconfigure after an edit (IP / access code / serial may have changed). */
-  update(row: PrinterRow) {
+  update(row: PrinterSettings) {
     const reconnect =
       row.ip !== this.row.ip ||
       row.access_code !== this.row.access_code ||
@@ -405,7 +353,7 @@ export class PrinterConnection extends EventEmitter {
     if (reconnect) {
       this.state = {};
       this.modules = [];
-      this.lastJob = null;
+      this.jobs.reset();
       this.start();
     } else {
       this.emit('update');
@@ -414,10 +362,13 @@ export class PrinterConnection extends EventEmitter {
 
   async send(payload: cmd.Command): Promise<void> {
     const client = this.client;
-    if (!client || !client.connected) throw new Error('Printer is not connected');
-    const body = JSON.stringify(payload);
+    if (!client || !client.connected) throw new HttpError(503, 'Printer is not connected');
     this.pushLog('out', payload);
-    await client.publishAsync(this.topicRequest, body, { qos: 0 });
+    try {
+      await client.publishAsync(requestTopic(this.row.serial), JSON.stringify(payload), { qos: 0 });
+    } catch (err) {
+      throw new HttpError(503, (err as Error).message);
+    }
   }
 
   private handleMessage(payload: Buffer) {
@@ -429,7 +380,6 @@ export class PrinterConnection extends EventEmitter {
     }
     this.lastReportAt = Date.now();
     this.stale = false;
-    // A connection that kept reporting for a while resets the backoff.
     if (this.attempt > 0 && this.lastReportAt - this.connectedAt >= this.timing.stableAfterMs) this.attempt = 0;
     if (this.status !== 'online') this.setStatus('online');
 
@@ -454,15 +404,11 @@ export class PrinterConnection extends EventEmitter {
   }
 
   private detectJobEvents() {
-    const next = jobSnapshot(this.state);
-    const events = detectEvents(this.lastJob, next);
-    // Wait for a report that carries the print state before taking the baseline.
-    if (next.gcodeState !== null) this.lastJob = next;
-    for (const event of events) {
+    for (const event of this.jobs.observe(this.state).events) {
       try {
         this.emit('event', event satisfies PrinterEvent);
       } catch (err) {
-        console.error('printer event listener failed', err);
+        log.error({ err }, 'printer event listener failed');
       }
     }
   }
@@ -479,23 +425,26 @@ export class PrinterConnection extends EventEmitter {
     this.emit('update');
   }
 
-  private connectionInfo() {
+  private connectionInfo(): ConnectionInfo {
     return {
       status: this.status,
       error: this.error,
       lastReportAt: this.lastReportAt,
-      /** Online, but no report for a while: shown values may be outdated. */
       stale: this.stale,
-      /** Epoch ms of the next reconnect attempt, if one is scheduled. */
       nextRetryAt: this.nextRetryAt || null,
     };
   }
 
-  /** Public representation sent to the browser (never includes the access code). */
-  snapshot() {
+  /** Never includes the access code. */
+  private publicRow() {
     const { access_code: _code, ...printer } = this.row;
+    return printer;
+  }
+
+  /** Live part of the printer view sent to the browser. */
+  snapshot(): Pick<PrinterDetail, 'printer' | 'connection' | 'state' | 'modules' | 'log'> {
     return {
-      printer,
+      printer: this.publicRow(),
       connection: this.connectionInfo(),
       state: this.state,
       modules: this.modules,
@@ -504,19 +453,19 @@ export class PrinterConnection extends EventEmitter {
   }
 
   /** Small summary for the printer list. */
-  summary() {
+  summary(): PrinterSummary {
     const s = this.state;
+    const job = jobSnapshot(s);
     const temp = (v: unknown) => (typeof v === 'number' ? Math.round(v) : null);
-    const { access_code: _code, ...printer } = this.row;
     return {
-      printer,
+      printer: this.publicRow(),
       connection: this.connectionInfo(),
-      gcodeState: s.gcode_state ?? null,
-      percent: s.mc_percent ?? null,
-      remainingMinutes: s.mc_remaining_time ?? null,
-      layer: s.layer_num ?? null,
-      totalLayers: s.total_layer_num ?? null,
-      task: s.subtask_name || s.gcode_file || null,
+      gcodeState: job.gcodeState,
+      percent: job.percent,
+      remainingMinutes: job.remainingMinutes,
+      layer: job.layer,
+      totalLayers: job.totalLayers,
+      task: job.task,
       nozzle: temp(s.nozzle_temper),
       nozzleTarget: temp(s.nozzle_target_temper),
       bed: temp(s.bed_temper),

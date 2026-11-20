@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, type PrinterDetail } from '../lib/api';
+  import type { PrinterDetail } from '../../../shared/api.ts';
+  import { api } from '../lib/api';
   import { navigate } from '../lib/router.svelte';
+  import { printerPage } from '../../../shared/pages.ts';
   import { toast, toastError } from '../lib/toast.svelte';
   import { t } from '../lib/i18n.svelte';
   import { confirmAction } from '../lib/confirm.svelte';
@@ -61,7 +63,7 @@
     <div class="stack" style="gap:0">
       <nav class="crumbs" aria-label={t('common.breadcrumb')}>
         <a href="#/">{t('nav.printers')}</a><span>›</span>
-        <a href="#/printer/{id}">{printerName || t('editPrinter.printer')}</a><span>›</span>
+        <a href={printerPage(id)}>{printerName || t('editPrinter.printer')}</a><span>›</span>
       </nav>
       <h1>{t('editPrinter.title')}</h1>
     </div>

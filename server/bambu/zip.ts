@@ -81,7 +81,6 @@ export async function readZipDirectory(
   }
 
   if (dirSize > maxDirectorySize) throw new ZipError('ZIP central directory is too large');
-  // Reuse the tail when it already covers the directory (the common case).
   const dir =
     dirOffset >= tailStart && dirOffset + dirSize <= src.size
       ? tail.subarray(dirOffset - tailStart, dirOffset - tailStart + dirSize)
@@ -138,8 +137,6 @@ export async function readZipEntry(src: RangeSource, entry: ZipEntry, maxSize: n
   }
   if (entry.method !== 0 && entry.method !== 8) throw new ZipError(`${entry.name}: unsupported compression`);
 
-  // One read for header + data in the usual case: assume a local extra field
-  // of up to 256 bytes, fetch the remainder if it turns out to be longer.
   const guess = Math.min(src.size - entry.localHeaderOffset, 30 + Buffer.byteLength(entry.name) + 256 + entry.compressedSize);
   let chunk = await readExact(src, entry.localHeaderOffset, guess);
   if (chunk.length < 30 || chunk.readUInt32LE(0) !== LOCAL_SIG) throw new ZipError(`${entry.name}: bad local header`);

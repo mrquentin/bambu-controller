@@ -19,3 +19,13 @@ export function toast(message: string, kind: Toast['kind'] = 'info') {
 export function toastError(err: unknown) {
   toast(err instanceof Error ? err.message : String(err), 'error');
 }
+
+/** The promise's value, or `fallback` after toasting why it failed. */
+export async function orToast<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await promise;
+  } catch (err) {
+    toastError(err);
+    return fallback;
+  }
+}

@@ -30,7 +30,7 @@ async function rejects(options: InjectOptions, message?: string | RegExp) {
 }
 
 before(async () => {
-  app = await buildApp({ logLevel: false });
+  app = await buildApp();
   await app.ready();
   const setup = await app.inject({
     method: 'POST',
@@ -58,7 +58,7 @@ before(async () => {
 });
 
 after(async () => {
-  for (const p of manager.all()) manager.remove(p.connection.row.id);
+  for (const p of manager.all()) manager.remove(p);
   await app.close();
 });
 
@@ -106,13 +106,18 @@ describe('request validation', () => {
     await rejects({ method: 'POST', url: `${base}/command`, payload: { action: 'speed', level: 2.5 } }, '"level" must be an integer');
     await rejects({ method: 'POST', url: `${base}/command`, payload: { action: 'light', node: 'laser', on: true } }, /"node" must be one of/);
     await rejects({ method: 'POST', url: `${base}/command`, payload: { action: 'gcode', gcode: 'G28\n'.repeat(1001) } }, 'G-code is empty or too long');
-    // Ranges are still checked by the command builder, with the same message as before.
+    // Out of the range given in the command table.
     await rejects({ method: 'POST', url: `${base}/command`, payload: { action: 'nozzleTemp', temp: 999 } }, 'Value must be between 0 and 350');
     assert.equal(sent.length, 0);
 
-    const ok = await call({ method: 'POST', url: `${base}/command`, payload: { action: 'nozzleTemp', temp: 210, extruder: null } });
-    assert.equal(ok.status, 200);
-    assert.equal(sent.length, 1);
+    await rejects({ method: 'POST', url: `${base}/command`, payload: { action: 'gcode', gcode: ' \n ' } }, 'G-code is empty or too long');
+    assert.equal(sent.length, 0);
+
+    for (const payload of [{ action: 'nozzleTemp', temp: 210, extruder: 1 }, { action: 'gcode', gcode: 'G28' }]) {
+      const ok = await call({ method: 'POST', url: `${base}/command`, payload });
+      assert.equal(ok.status, 200, JSON.stringify(payload));
+    }
+    assert.equal(sent.length, 2);
   });
 
   it('rejects malformed file and print requests', async () => {
@@ -164,5 +169,15 @@ describe('request validation', () => {
     await rejects({ method: 'POST', url: '/api/users', payload: { username: 'bob', password: 'Sup3r-Secret!', admin: true } }, 'Unknown field "admin"');
     await rejects({ method: 'POST', url: '/api/users', payload: { username: 'bob', password: 'x'.repeat(257) } }, 'Password is too long (max 256 characters)');
     await rejects({ method: 'POST', url: '/api/auth/password', payload: { current: 1, next: 'Sup3r-Secret!2' } }, 'Current password is incorrect');
+  });
+});
+
+describe('printer without a camera', () => {
+  it('answers camera requests right away instead of waiting for frames', async () => {
+    for (const path of ['camera/snapshot', 'camera/stream']) {
+      const { status, error } = await call({ method: 'GET', url: `${base}/${path}` });
+      assert.equal(status, 404, path);
+      assert.equal(error, 'Camera disabled for this printer');
+    }
   });
 });
