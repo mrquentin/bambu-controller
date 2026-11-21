@@ -81,7 +81,7 @@ lives in `./data`; keep `.env` (the encryption key) outside of your backups of `
 
 ### Unraid
 
-A Docker template is provided in [`unraid/bambu-controller.xml`](unraid/bambu-controller.xml).
+A Docker template is provided in [`unraid/bambu-controller.xml`](unraid/bambu-controller.xml) (details in [`unraid/README.md`](unraid/README.md)).
 In Unraid: **Docker → Add Container → Template:** paste the template URL
 `https://raw.githubusercontent.com/mrquentin/bambu-controller/main/unraid/bambu-controller.xml`
 (or add `https://github.com/mrquentin/bambu-controller` under *Docker → Template repositories*).
@@ -156,3 +156,7 @@ for findings, fixes, accepted risks, monitoring and the incident-response runboo
   without HTTPS (and ideally a reverse proxy with SSO/MFA in front).
 
 Report security issues privately to the maintainer rather than in public issues.
+
+## License
+
+[MIT](LICENSE) © 2026 MrQuentinet

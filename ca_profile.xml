@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Maintainer>
+  <Icon>https://raw.githubusercontent.com/mrquentin/bambu-controller/main/web/public/icon-512.png</Icon>
+  <Profile>MrQuentinet (github.com/mrquentin) - Unraid templates from mrquentin/bambu-controller. Bambu Controller is a self-hosted web app to monitor and control Bambu Lab 3D printers in LAN Only Mode: no cloud, no account. Images are published to GHCR (amd64 + arm64) with signed build provenance and run unprivileged with a read-only root filesystem.</Profile>
+  <WebPage>https://github.com/mrquentin/bambu-controller</WebPage>
+</Maintainer>

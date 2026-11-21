@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Lightweight self-hosted web app to monitor and control Bambu Lab printers in LAN mode",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24"
